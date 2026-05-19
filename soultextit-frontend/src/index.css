@@ -1,8 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Syne:wght@700;800&display=swap');
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 :root {
   --bg-space: #02010a;
@@ -121,6 +118,21 @@ h1, h2, h3, .font-display {
   color: #e2e8f0;
   line-height: 1.8;
   font-size: 1.125rem;
+}
+
+/* Ensure Tailwind v4 handles custom utilities correctly */
+@layer components {
+  .glass-panel {
+    @apply bg-[var(--glass-bg)] backdrop-blur-[24px] saturate-[180%] border-[1px] border-[var(--glass-border)] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)];
+  }
+  
+  .glass-card {
+    @apply bg-white/2 border border-white/5 transition-all duration-400 ease-[cubic-bezier(0.23,1,0.32,1)];
+  }
+
+  .premium-card {
+    @apply bg-white/3 border border-white/5 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)];
+  }
 }
 
 .ProseMirror p.is-editor-empty:first-child::before {
