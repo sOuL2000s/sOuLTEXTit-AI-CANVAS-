@@ -3,7 +3,8 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import ReactDiffViewer from 'react-diff-viewer-continued';
 import axios from 'axios';
-import { Download, Mic, Wand2, Check, X, Save, History, FileUp } from 'lucide-react';
+import { io } from 'socket.io-client';
+import { Download, Mic, MicOff, Wand2, Check, X, Save, History, FileUp, Plus, Trash2, Loader2 } from 'lucide-react';
 import { jsPDF } from "jspdf";
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -11,44 +12,204 @@ import { motion, AnimatePresence } from 'framer-motion';
 const Editor = () => {
   const [prompt, setPrompt] = useState('');
   const [suggestion, setSuggestion] = useState(null);
+  const [selectionRange, setSelectionRange] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [provider, setProvider] = useState('gemini');
-  const [title, setTitle] = useState('A New Narrative');
+  const [availableModels, setAvailableModels] = useState([]);
+  const [sttModels, setSttModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState('');
+  const [selectedSttModel, setSelectedSttModel] = useState('');
   const [isRecording, setIsRecording] = useState(false);
+  const [isProcessingStt, setIsProcessingStt] = useState(false);
+  const [socket, setSocket] = useState(null);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [title, setTitle] = useState('A New Narrative');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [canvases, setCanvases] = useState([]);
   const [saveStatus, setSaveStatus] = useState('idle'); // idle, saving, saved
+
+  // Define axios instance outside or memoize to ensure consistency
+  const axiosAuth = axios.create({
+    baseURL: 'http://localhost:5000',
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+  });
+
+  const fetchCanvases = async () => {
+    try {
+      const res = await axiosAuth.get('/api/canvases');
+      setCanvases(res.data);
+    } catch (e) { console.error("Archive inaccessible"); }
+  };
 
   const editor = useEditor({
     extensions: [StarterKit.configure({
       placeholder: 'Begin your journey here...',
     })],
     content: '',
-    onUpdate: () => setSaveStatus('idle')
+    onUpdate: () => setSaveStatus('dirty')
   });
 
-  const axiosAuth = axios.create({
-    baseURL: 'http://localhost:5000',
-    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-  });
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        const res = await axiosAuth.get('/api/admin/models');
+        const textModels = res.data.filter(m => m.category === 'text' && m.isActive);
+        const speechModels = res.data.filter(m => m.category === 'stt' && m.isActive);
+        setAvailableModels(textModels);
+        setSttModels(speechModels);
+        
+        const initialModel = textModels.find(m => m.isDefault)?.modelId || textModels[0]?.modelId || '';
+        const initialSttModel = speechModels.find(m => m.isDefault)?.modelId || speechModels[0]?.modelId || '';
+        setSelectedModel(initialModel);
+        setSelectedSttModel(initialSttModel);
+      } catch (e) { console.error("Neural metadata unavailable"); }
+    };
+
+    fetchModels();
+    fetchCanvases();
+
+    // Initialize Neural Socket
+    const newSocket = io('http://localhost:5000');
+    setSocket(newSocket);
+
+    newSocket.on('transcription-result', (data) => {
+      if (editor && data.text) {
+        editor.chain().focus().insertContent(data.text + ' ').run();
+      }
+      setIsProcessingStt(false);
+      setIsRecording(false);
+    });
+
+    newSocket.on('stt-error', (err) => {
+      console.error("STT Pipeline Error:", err);
+      setIsProcessingStt(false);
+      setIsRecording(false);
+    });
+
+    return () => newSocket.close();
+  }, [editor]);
+
+  const toggleSpeech = async () => {
+    if (isRecording) {
+      stopSpeech();
+    } else {
+      startSpeech();
+    }
+  };
+
+  const startSpeech = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      setMediaRecorder(recorder);
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0 && socket) {
+          socket.emit('audio-chunk', e.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        stream.getTracks().forEach(track => track.stop());
+        if (socket) {
+          socket.emit('stop-recording', { modelId: selectedSttModel });
+          setIsProcessingStt(true);
+        }
+      };
+
+      recorder.start(1000); // Send chunks every 1s
+      setIsRecording(true);
+    } catch (err) {
+      alert("Microphone Access Denied: Neural link failed.");
+    }
+  };
+
+  const stopSpeech = () => {
+    if (mediaRecorder) {
+      if (!selectedSttModel) {
+        alert("Select a Speech-to-Text model in the configuration dock first.");
+        mediaRecorder.stream.getTracks().forEach(t => t.stop());
+        setIsRecording(false);
+        return;
+      }
+      mediaRecorder.stop();
+    }
+  };
+
+  // Auto-save logic
+  useEffect(() => {
+    if (!editor || saveStatus !== 'dirty') return;
+    const timer = setTimeout(() => {
+      saveCanvas();
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [editor?.getHTML(), title, saveStatus]);
 
   const handleAiAction = async () => {
-    if (!prompt) return;
+    if (!prompt || !selectedModel) {
+      if (!selectedModel) alert("Please select an AI model from the dropdown first.");
+      return;
+    }
     setLoading(true);
-    const selection = editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, ' ') || editor.getHTML();
+    
+    const { from, to } = editor.state.selection;
+    const isSelection = from !== to;
+    const context = isSelection ? editor.state.doc.textBetween(from, to, ' ') : editor.getHTML();
+    
+    setSelectionRange(isSelection ? { from, to } : null);
+
     try {
-      const res = await axiosAuth.post('/api/ai/edit', { prompt, context: selection, provider });
-      // Standardize output to HTML for Tiptap
-      setSuggestion(res.data.suggestion.includes('<p>') ? res.data.suggestion : `<p>${res.data.suggestion.replace(/\n/g, '</p><p>')}</p>`);
+      const res = await axiosAuth.post('/api/ai/edit', { 
+        prompt, 
+        context: context, 
+        modelId: selectedModel 
+      });
+      
+      const rawOutput = res.data.suggestion;
+      const cleanHtml = rawOutput.includes('<p>') ? 
+        rawOutput : 
+        `<p>${rawOutput.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>')}</p>`;
+        
+      setSuggestion(cleanHtml);
     } catch (err) { 
-      console.error(err);
-      alert(err.response?.data?.error || "Connection to the Neural Mesh failed."); 
+      console.error("AI Protocol Error:", err);
+      alert(err.response?.data?.error || "Neural link unstable."); 
     }
     setLoading(false);
   };
 
   const saveCanvas = async () => {
+    setSaveStatus('saving');
     try {
       await axiosAuth.post('/api/canvases', { title, content: editor.getHTML() });
-    } catch (err) { console.error("Archive failed"); }
+      setSaveStatus('saved');
+      fetchCanvases();
+    } catch (err) { 
+      console.error("Archive failed");
+      setSaveStatus('error');
+    }
+  };
+
+  const createNewCanvas = () => {
+    setTitle('A New Narrative');
+    editor.commands.setContent('');
+    setSaveStatus('idle');
+    setIsSidebarOpen(false);
+  };
+
+  const loadCanvas = (canvas) => {
+    setTitle(canvas.title);
+    editor.commands.setContent(canvas.content);
+    setSaveStatus('saved');
+    setIsSidebarOpen(false);
+  };
+
+  const deleteCanvas = async (id, e) => {
+    e.stopPropagation();
+    if (!confirm('Discard this manuscript forever?')) return;
+    try {
+      await axiosAuth.delete(`/api/canvases/${id}`);
+      fetchCanvases();
+    } catch (e) { console.error("Deletion failed"); }
   };
 
   const importFile = (e) => {
@@ -68,17 +229,86 @@ const Editor = () => {
     doc.save(`${title}.pdf`);
   };
 
-  const startSpeech = () => {
-    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      editor.commands.insertContent(transcript + ' ');
-    };
-    recognition.start();
-  };
+  // Removed old native SpeechRecognition implementation
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 relative">
+      {/* Floating Sidebar Toggle (Contextual Navigation) */}
+      <button 
+        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+        className="fixed left-6 top-32 z-50 p-3 glass-panel rounded-xl text-violet-400 hover:text-white transition-colors shadow-xl"
+        title="Archive Explorer"
+      >
+        <History size={20} />
+      </button>
+
+      {/* Contextual Navigation Sidebar */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsSidebarOpen(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]"
+            />
+            <motion.div
+              initial={{ x: -300 }}
+              animate={{ x: 0 }}
+              exit={{ x: -300 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed left-0 top-0 h-full w-80 glass-panel border-r border-white/10 z-[70] p-8 shadow-2xl"
+            >
+              <div className="flex justify-between items-center mb-10">
+                <h3 className="text-xl font-display font-black text-white uppercase tracking-tighter">Archive</h3>
+                <button onClick={() => setIsSidebarOpen(false)} className="text-gray-500 hover:text-white"><X size={20}/></button>
+              </div>
+              
+              <div className="space-y-4">
+                <button 
+                  onClick={createNewCanvas}
+                  className="w-full p-4 rounded-2xl bg-violet-600 text-white font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-violet-600/20 active:scale-95 transition-transform"
+                >
+                  <Plus size={14} /> New Manuscript
+                </button>
+                
+                <div className="mt-8">
+                   <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-4 px-2">Recent Synchronizations</p>
+                   <div className="space-y-2 overflow-y-auto max-h-[60vh] pr-2">
+                     {canvases.length > 0 ? canvases.map(c => (
+                       <div 
+                        key={c._id} 
+                        className="w-full flex items-center gap-2 group"
+                       >
+                         <button 
+                          onClick={() => loadCanvas(c)}
+                          className="flex-1 text-left p-4 rounded-xl hover:bg-white/5 transition-all border border-transparent hover:border-white/5 overflow-hidden"
+                         >
+                           <p className="text-sm font-bold text-gray-300 group-hover:text-white transition-colors truncate">{c.title}</p>
+                           <p className="text-[9px] font-medium text-gray-600 mt-1 uppercase tracking-widest">{new Date(c.lastModified).toLocaleDateString()}</p>
+                         </button>
+                         <button 
+                          onClick={(e) => deleteCanvas(c._id, e)}
+                          className="p-3 text-gray-700 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all opacity-0 group-hover:opacity-100"
+                         >
+                           <Trash2 size={16} />
+                         </button>
+                       </div>
+                     )) : (
+                       <div className="text-center py-10 opacity-30">
+                         <History size={32} className="mx-auto mb-2" />
+                         <p className="text-[10px] font-black uppercase">No records</p>
+                       </div>
+                     )}
+                   </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Workspace Header */}
       <motion.div 
         initial={{ opacity: 0, y: -20 }}
@@ -92,18 +322,16 @@ const Editor = () => {
             onChange={e => setTitle(e.target.value)} 
           />
           <div className="flex items-center gap-4 mt-2 px-2">
-            <span className={`text-[10px] font-bold uppercase tracking-[0.2em] px-2 py-0.5 rounded ${saveStatus === 'saved' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
-              {saveStatus === 'saved' ? 'Synchronized' : 'Draft'}
+            <span className={`text-[10px] font-bold uppercase tracking-[0.2em] px-2 py-0.5 rounded ${saveStatus === 'saved' ? 'bg-emerald-500/20 text-emerald-400' : (saveStatus === 'saving' ? 'bg-violet-500/20 text-violet-400' : 'bg-amber-500/20 text-amber-400')}`}>
+              {saveStatus === 'saved' ? 'Synchronized' : (saveStatus === 'saving' ? 'Syncing...' : 'Modified')}
             </span>
             <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
-              Last modified: {new Date().toLocaleTimeString()}
+              Autosave Active
             </span>
           </div>
         </div>
 
         <div className="flex items-center gap-2 bg-white/5 p-1.5 rounded-2xl border border-white/5">
-          <button onClick={saveCanvas} className="p-3 text-violet-400 hover:bg-violet-500/10 rounded-xl transition-all" title="Save Draft"><Save size={18}/></button>
-          <div className="w-[1px] h-4 bg-white/10 mx-1" />
           <label className="p-3 text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-all cursor-pointer">
             <FileUp size={18}/>
             <input type="file" className="hidden" onChange={importFile} accept=".txt,.md"/>
@@ -118,12 +346,30 @@ const Editor = () => {
         <div className="glass-panel p-2 rounded-2xl flex flex-col sm:flex-row gap-2 shadow-2xl shadow-purple-900/20 border-white/10">
           <div className="flex gap-2">
             <select 
-              className="bg-white/5 text-[11px] font-black uppercase tracking-widest text-gray-300 outline-none px-4 py-3 rounded-xl border border-white/5 appearance-none cursor-pointer hover:bg-white/10"
-              value={provider}
-              onChange={(e) => setProvider(e.target.value)}
+              className="bg-white/5 text-[10px] font-black uppercase tracking-widest text-gray-300 outline-none px-4 py-3 rounded-xl border border-white/5 appearance-none cursor-pointer hover:bg-white/10 min-w-[140px]"
+              title="Text Generation Model"
+              value={selectedModel || ""}
+              onChange={(e) => setSelectedModel(e.target.value)}
             >
-              <option value="gemini" className="bg-slate-900">Gemini Neural</option>
-              <option value="groq" className="bg-slate-900">Llama Quantum</option>
+              {availableModels.length === 0 && <option value="">No Text Models</option>}
+              {availableModels.map(m => (
+                <option key={m.modelId} value={m.modelId} className="bg-slate-900">
+                  AI: {m.displayName || m.modelId}
+                </option>
+              ))}
+            </select>
+            <select 
+              className="bg-white/5 text-[10px] font-black uppercase tracking-widest text-gray-300 outline-none px-4 py-3 rounded-xl border border-white/5 appearance-none cursor-pointer hover:bg-white/10 min-w-[140px]"
+              title="Speech-to-Text Model"
+              value={selectedSttModel || ""}
+              onChange={(e) => setSelectedSttModel(e.target.value)}
+            >
+              {sttModels.length === 0 && <option value="">Native Speech</option>}
+              {sttModels.map(m => (
+                <option key={m.modelId} value={m.modelId} className="bg-slate-900">
+                  Mic: {m.displayName || m.modelId}
+                </option>
+              ))}
             </select>
           </div>
           <div className="flex-1 relative">
@@ -144,10 +390,26 @@ const Editor = () => {
             </button>
           </div>
           <button 
-            onClick={startSpeech} 
-            className={`p-3 rounded-xl transition-all ${isRecording ? 'bg-rose-500 text-white animate-pulse' : 'bg-white/5 text-rose-400 hover:bg-rose-500/10'}`}
+            onClick={toggleSpeech} 
+            disabled={isProcessingStt}
+            className={`p-3 rounded-xl transition-all relative ${
+              isRecording 
+                ? 'bg-rose-500 text-white animate-pulse' 
+                : 'bg-white/5 text-rose-400 hover:bg-rose-500/10'
+            } ${isProcessingStt ? 'opacity-50 cursor-wait' : ''}`}
           >
-            <Mic size={20} />
+            {isProcessingStt ? (
+              <Loader2 size={20} className="animate-spin" />
+            ) : isRecording ? (
+              <MicOff size={20} />
+            ) : (
+              <Mic size={20} />
+            )}
+            
+            {/* Visual Listening Ripple */}
+            {isRecording && (
+              <span className="absolute inset-0 rounded-xl bg-rose-500 animate-ping opacity-20 pointer-events-none" />
+            )}
           </button>
         </div>
       </div>
@@ -173,14 +435,25 @@ const Editor = () => {
                   <button onClick={() => setSuggestion(null)} className="px-6 py-2 rounded-xl text-sm font-bold text-gray-400 hover:bg-white/5 transition-all">
                     Discard
                   </button>
-                  <button onClick={() => { editor.commands.setContent(suggestion); setSuggestion(null); }} className="px-8 py-2 rounded-xl bg-violet-600 text-white text-sm font-bold shadow-lg shadow-violet-500/40 hover:bg-violet-500 transition-all flex items-center gap-2">
+                  <button 
+                    onClick={() => { 
+                      if (selectionRange) {
+                        editor.commands.insertContentAt(selectionRange, suggestion);
+                      } else {
+                        editor.commands.setContent(suggestion); 
+                      }
+                      setSuggestion(null); 
+                      setSelectionRange(null);
+                    }} 
+                    className="px-8 py-2 rounded-xl bg-violet-600 text-white text-sm font-bold shadow-lg shadow-violet-500/40 hover:bg-violet-500 transition-all flex items-center gap-2"
+                  >
                     <Check size={18}/> Commit Changes
                   </button>
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-4 custom-diff-viewer">
                 <ReactDiffViewer 
-                  oldValue={editor.getHTML()} 
+                  oldValue={selectionRange ? editor.state.doc.textBetween(selectionRange.from, selectionRange.to, ' ') : editor.getHTML()} 
                   newValue={suggestion} 
                   splitView={true} 
                   useDarkTheme={true}

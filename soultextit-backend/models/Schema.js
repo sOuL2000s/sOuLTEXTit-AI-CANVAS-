@@ -9,18 +9,35 @@ const UserSchema = new mongoose.Schema({
 });
 
 const ApiKeySchema = new mongoose.Schema({
-  provider: { type: String, enum: ['gemini', 'groq'] },
+  provider: { type: String, enum: ['gemini', 'groq', 'openai', 'anthropic'], required: true },
   key: { type: String, required: true },
-  type: { type: String, enum: ['text', 'image', 'stt'], default: 'text' },
+  label: { type: String, default: 'Primary Key' },
+  type: { type: String, enum: ['text', 'image', 'stt', 'general'], default: 'general' },
   isActive: { type: Boolean, default: true },
+  priority: { type: Number, default: 0 }, // Higher is tried first
+  usageStats: {
+    totalRequests: { type: Number, default: 0 },
+    errorCount: { type: Number, default: 0 },
+    lastUsed: Date
+  },
   createdAt: { type: Date, default: Date.now }
 });
 
 const ModelSchema = new mongoose.Schema({
-  name: String, // e.g., "gemini-1.5-pro", "llama-3.1-70b"
-  provider: { type: String, enum: ['gemini', 'groq'] },
-  type: { type: String, enum: ['text', 'image', 'stt'] },
-  isDefault: { type: Boolean, default: false }
+  modelId: { type: String, required: true, unique: true }, // e.g., "gemini-1.5-pro"
+  displayName: String,
+  provider: { type: String, enum: ['gemini', 'groq', 'openai'], required: true },
+  category: { type: String, enum: ['text', 'image', 'stt'], required: true },
+  capabilities: {
+    vision: { type: Boolean, default: false },
+    streaming: { type: Boolean, default: true },
+    maxTokens: Number,
+    contextWindow: Number
+  },
+  description: String,
+  isActive: { type: Boolean, default: true },
+  isDefault: { type: Boolean, default: false },
+  priority: { type: Number, default: 0 }
 });
 
 const CanvasSchema = new mongoose.Schema({
