@@ -12,7 +12,7 @@ const Auth = ({ setUser }) => {
     e.preventDefault();
     const endpoint = isLogin ? 'login' : 'signup';
     try {
-      const res = await axios.post(`http://localhost:5000/api/auth/${endpoint}`, form);
+      const res = await axios.post(`${import.meta.env.VITE_API_URL}/api/auth/${endpoint}`, form);
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('user', JSON.stringify(res.data.user));
       setUser(res.data.user);
@@ -21,7 +21,7 @@ const Auth = ({ setUser }) => {
 
   const onGoogleSuccess = async (response) => {
     try {
-      const res = await axios.post('http://localhost:5000/api/auth/google', { credential: response.credential });
+      const res = await axios.post(`${import.meta.env.VITE_API_URL}/api/auth/google`, { credential: response.credential });
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('user', JSON.stringify(res.data.user));
       setUser(res.data.user);

@@ -327,4 +327,5 @@ app.delete('/api/admin/models/:id', auth, isAdmin, async (req, res) => {
   res.sendStatus(204);
 });
 
-httpServer.listen(5000, () => console.log('sOuLTEXTit Neural Core Running on Port 5000'));
+const PORT = process.env.PORT || 5000;
+httpServer.listen(PORT, () => console.log(`sOuLTEXTit Neural Core Running on Port ${PORT}`));
