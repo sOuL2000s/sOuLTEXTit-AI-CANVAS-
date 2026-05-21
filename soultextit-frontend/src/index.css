@@ -158,6 +158,17 @@ h1, h2, h3, .font-display {
   font-size: 1.125rem;
 }
 
+.ProseMirror h1 { font-size: 2.5rem; font-weight: 800; margin-bottom: 1rem; color: #fff; }
+.ProseMirror h2 { font-size: 2rem; font-weight: 700; margin-top: 2rem; margin-bottom: 0.75rem; color: #f8fafc; }
+.ProseMirror h3 { font-size: 1.5rem; font-weight: 600; margin-top: 1.5rem; color: #f1f5f9; }
+.ProseMirror ul { list-style-type: disc; padding-left: 1.5rem; margin: 1rem 0; }
+.ProseMirror ol { list-style-type: decimal; padding-left: 1.5rem; margin: 1rem 0; }
+.ProseMirror blockquote { border-left: 4px solid #8b5cf6; padding-left: 1rem; font-style: italic; color: #94a3b8; margin: 1.5rem 0; }
+.ProseMirror code { background: rgba(255,255,255,0.1); padding: 0.2rem 0.4rem; border-radius: 4px; font-family: monospace; }
+.ProseMirror pre { background: #0f172a; padding: 1rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
+.ProseMirror pre code { background: none; padding: 0; }
+.ProseMirror a { color: #8b5cf6; text-decoration: underline; cursor: pointer; }
+
 /* Ensure Tailwind v4 handles custom utilities correctly */
 @layer components {
   .glass-panel {
@@ -165,12 +176,29 @@ h1, h2, h3, .font-display {
   }
   
   .glass-card {
-    @apply bg-white/2 border border-white/5 transition-all duration-400 ease-[cubic-bezier(0.23,1,0.32,1)];
+    @apply bg-white/5 border border-white/10 transition-all duration-400 ease-[cubic-bezier(0.23,1,0.32,1)];
   }
 
   .premium-card {
     @apply bg-white/3 border border-white/5 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)];
   }
+}
+
+/* Responsive Overrides */
+@media (max-width: 640px) {
+  .ProseMirror {
+    font-size: 1rem;
+    padding: 1rem 0;
+  }
+  .ProseMirror h1 { font-size: 1.8rem; }
+  .ProseMirror h2 { font-size: 1.5rem; }
+  .ProseMirror h3 { font-size: 1.25rem; }
+}
+
+.xs-only { display: none; }
+@media (max-width: 480px) {
+  .xs-only { display: block; }
+  .xs-hidden { display: none; }
 }
 
 .ProseMirror p.is-editor-empty:first-child::before {
@@ -215,4 +243,40 @@ h1, h2, h3, .font-display {
   filter: blur(15px);
   opacity: 0.3;
   border-radius: inherit;
+}
+
+/* Neural Math Styling */
+.katex-display {
+  margin: 1.5rem 0;
+  padding: 1.25rem;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 1rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.katex {
+  font-size: 1.15em;
+  color: #a78bfa;
+}
+
+.math-block {
+  display: block;
+  margin: 1.5rem 0;
+  text-align: center;
+}
+
+.math-inline {
+  display: inline-block;
+  padding: 0 0.2em;
+}
+
+/* Custom Scrollbar for Guide */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.3);
+  border-radius: 10px;
 }

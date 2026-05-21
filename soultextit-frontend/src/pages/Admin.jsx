@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Shield, Cpu, Key, Activity, Plus, Trash2, Power, Globe, BarChart3, AlertTriangle, Layers } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -82,27 +82,27 @@ const Admin = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-12">
-      <header className="mb-12 flex flex-col md:flex-row justify-between items-start md:items-end gap-8">
+      <header className="mb-8 md:mb-12 flex flex-col lg:flex-row justify-between items-start lg:items-end gap-8">
         <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }}>
-          <h1 className="text-6xl font-display font-black text-white tracking-tighter uppercase">Nexus Central</h1>
-          <p className="text-gray-400 font-bold uppercase tracking-[0.3em] text-[10px] mt-2 flex items-center gap-2">
+          <h1 className="text-4xl md:text-6xl font-display font-black text-white tracking-tighter uppercase">Nexus Central</h1>
+          <p className="text-gray-400 font-bold uppercase tracking-[0.3em] text-[8px] md:text-[10px] mt-2 flex items-center gap-2">
             <Activity size={12} className={stats.systemStatus === 'Optimal' ? "text-emerald-500" : "text-amber-500"} /> 
             System Status: {stats.systemStatus}
           </p>
         </motion.div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 w-full md:w-auto">
-          <StatCard icon={Cpu} label="Active Models" value={stats.activeModels} color="violet" />
-          <StatCard icon={Key} label="Secure Nodes" value={stats.totalKeys} color="amber" />
-          <StatCard icon={BarChart3} label="Total Throughput" value={stats.totalRequests} color="emerald" />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 w-full">
+          <StatCard icon={Cpu} label="Models" value={stats.activeModels} color="violet" />
+          <StatCard icon={Key} label="Nodes" value={stats.totalKeys} color="amber" />
+          <StatCard icon={BarChart3} label="Throughput" value={stats.totalRequests} color="emerald" />
         </div>
       </header>
 
-      <div className="flex flex-wrap gap-2 mb-10 bg-white/5 p-1.5 rounded-2xl border border-white/10 w-fit relative overflow-hidden">
+      <div className="flex flex-wrap gap-1 mb-8 md:mb-10 bg-white/5 p-1 rounded-2xl border border-white/10 w-full sm:w-fit relative overflow-hidden">
         {['models', 'keys', 'metrics'].map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`relative px-10 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all z-10 ${activeTab === tab ? 'text-black' : 'text-gray-400 hover:text-white'}`}
+            className={`flex-1 sm:flex-none relative px-4 md:px-10 py-2.5 md:py-3 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all z-10 ${activeTab === tab ? 'text-black' : 'text-gray-400 hover:text-white'}`}
           >
             {tab}
             {activeTab === tab && (
@@ -119,9 +119,9 @@ const Admin = () => {
       <AnimatePresence mode="wait">
         {activeTab === 'models' && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} key="models">
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+            <div className="flex flex-col xl:flex-row gap-8">
               {/* Add Model Side-Form */}
-              <div className="glass-panel p-8 rounded-3xl border-violet-500/20 h-fit sticky top-32 shadow-2xl">
+              <div className="xl:w-1/3 glass-panel p-6 md:p-8 rounded-3xl border-violet-500/20 h-fit xl:sticky xl:top-32 shadow-2xl order-2 xl:order-1">
                 <h3 className="text-xl font-display font-bold text-white mb-8 flex items-center gap-3">
                   <Plus size={24} className="text-violet-500"/> Model Genesis
                 </h3>
@@ -176,7 +176,7 @@ const Admin = () => {
               </div>
 
               {/* Models List - Enhanced Grid */}
-              <div className="xl:col-span-2 space-y-4">
+              <div className="xl:w-2/3 space-y-4 order-1 xl:order-2">
                 {models.length === 0 ? (
                   <div className="glass-panel p-20 text-center rounded-3xl border-dashed border-white/10">
                     <Layers className="mx-auto text-gray-700 mb-4" size={48} />
@@ -271,8 +271,8 @@ const Admin = () => {
               </div>
 
               {/* Keys Management Table */}
-              <div className="lg:col-span-8 glass-panel rounded-3xl overflow-hidden border-white/5">
-                <table className="w-full text-left border-collapse">
+              <div className="lg:col-span-8 glass-panel rounded-3xl overflow-x-auto border-white/5">
+                <table className="w-full text-left border-collapse min-w-[600px]">
                   <thead className="bg-white/5 text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">
                     <tr>
                       <th className="px-6 py-5">Node Identity</th>

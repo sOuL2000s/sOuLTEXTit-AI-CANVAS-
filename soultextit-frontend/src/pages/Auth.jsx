@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { GoogleLogin } from '@react-oauth/google';
-
+import { Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const Auth = ({ setUser }) => {
   const [isLogin, setIsLogin] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState({ email: '', password: '', name: '' });
 
   const handleSubmit = async (e) => {
@@ -55,12 +56,21 @@ const Auth = ({ setUser }) => {
             placeholder="Digital Mail (Email)" 
             onChange={e => setForm({...form, email: e.target.value})} 
           />
-          <input 
-            className="bg-white/5 border border-white/10 p-4 rounded-xl outline-none focus:border-violet-500 text-white transition-all" 
-            type="password" 
-            placeholder="Cipher (Password)" 
-            onChange={e => setForm({...form, password: e.target.value})} 
-          />
+          <div className="relative">
+            <input 
+              className="w-full bg-white/5 border border-white/10 p-4 rounded-xl outline-none focus:border-violet-500 text-white transition-all pr-12" 
+              type={showPassword ? "text" : "password"} 
+              placeholder="Cipher (Password)" 
+              onChange={e => setForm({...form, password: e.target.value})} 
+            />
+            <button 
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
           <button className="bg-white text-black font-black p-4 rounded-xl hover:bg-violet-500 hover:text-white transition-all transform active:scale-95 shadow-xl shadow-white/5 uppercase tracking-widest">
             {isLogin ? 'Sign In' : 'Create Avatar'}
           </button>
