@@ -140,7 +140,6 @@ const MathExtension = Node.create({
 });
 import { io } from 'socket.io-client';
 import { Download, Mic, MicOff, Wand2, Check, X, Save, History, FileUp, Plus, Trash2, Loader2, Eye, Code, HelpCircle, Layers, Sparkles } from 'lucide-react';
-import { jsPDF } from "jspdf";
 
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -414,14 +413,29 @@ const Editor = () => {
     reader.readAsText(file);
   };
 
-  const exportPDF = () => {
-    const doc = new jsPDF();
-    doc.setFontSize(20);
-    doc.text(title, 20, 20);
-    doc.setFontSize(12);
-    const splitText = doc.splitTextToSize(editor.getText(), 170);
-    doc.text(splitText, 20, 40);
-    doc.save(`${title}.pdf`);
+  const exportPDF = async () => {
+    if (!editor) return;
+    setLoading(true);
+    try {
+      const content = editor.storage.markdown.getMarkdown();
+      const response = await axiosAuth.post('/api/canvases/export-pdf', 
+        { title, content }, 
+        { responseType: 'blob' }
+      );
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${title}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      console.error("Export failed:", err);
+      alert("Failed to generate professional PDF.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const showHistory = () => {

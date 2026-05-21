@@ -10,6 +10,12 @@ const { OAuth2Client } = require('google-auth-library');
 const { User, ApiKey, Canvas, Model } = require('./models/Schema');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const axios = require('axios');
+const puppeteer = require('puppeteer');
+const md = require('markdown-it')({
+  html: true,
+  linkify: true,
+  typographer: true
+});
 
 const app = express();
 const httpServer = createServer(app);
@@ -294,6 +300,183 @@ app.post('/api/canvases', auth, async (req, res) => {
     res.json(canvas);
   } catch (err) {
     res.status(500).json({ error: "Failed to synchronize manuscript" });
+  }
+});
+
+// Professional PDF Generation via Puppeteer
+app.post('/api/canvases/export-pdf', auth, async (req, res) => {
+  const { title, content } = req.body;
+  
+  try {
+    const browser = await puppeteer.launch({ 
+      headless: "new",
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    const page = await browser.newPage();
+    
+    const htmlContent = md.render(content || '');
+    
+    const professionalTemplate = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Syne:wght@800&display=swap" rel="stylesheet">
+        <style>
+          @page { 
+            margin: 0; 
+            size: A4;
+          }
+          body { 
+            background-color: #02010a; 
+            color: #e2e8f0; 
+            font-family: 'Inter', sans-serif; 
+            line-height: 1.7; 
+            margin: 0;
+            padding: 0;
+            -webkit-print-color-adjust: exact;
+          }
+          .page-container {
+            padding: 60px;
+            min-height: 297mm; /* A4 height */
+            border: 1px solid rgba(212, 175, 55, 0.15);
+            box-sizing: border-box;
+            position: relative;
+            background: linear-gradient(135deg, #02010a 0%, #050510 100%);
+          }
+          .header {
+            border-bottom: 2px solid #d4af37;
+            padding-bottom: 25px;
+            margin-bottom: 50px;
+          }
+          h1, h2, h3 { 
+            font-family: 'Syne', sans-serif; 
+            color: #d4af37; 
+            text-transform: uppercase;
+            letter-spacing: -0.03em;
+            margin-top: 0;
+          }
+          h1 { font-size: 34pt; margin-bottom: 10px; font-weight: 800; line-height: 1; }
+          h2 { font-size: 22pt; margin-top: 40px; margin-bottom: 15px; border-left: 4px solid #d4af37; padding-left: 20px; }
+          h3 { font-size: 16pt; margin-top: 30px; margin-bottom: 12px; color: #f1d592; }
+          
+          .branding {
+            font-family: 'Syne', sans-serif;
+            font-weight: 800;
+            font-size: 11pt;
+            color: #d4af37;
+            text-transform: uppercase;
+            letter-spacing: 0.4em;
+            margin-bottom: 15px;
+            opacity: 0.9;
+          }
+          
+          .content-body { font-size: 11pt; text-align: justify; color: #cbd5e1; }
+          .content-body p { margin-bottom: 1.5em; }
+          
+          blockquote { 
+            border-left: 5px solid #d4af37; 
+            padding: 15px 25px; 
+            background: rgba(212, 175, 55, 0.04);
+            font-style: italic; 
+            color: #94a3b8; 
+            margin: 30px 0; 
+            border-radius: 0 12px 12px 0;
+          }
+          
+          pre { 
+            background: #050508; 
+            padding: 20px; 
+            border-radius: 12px; 
+            font-size: 9.5pt; 
+            margin: 25px 0; 
+            border: 1px solid rgba(212, 175, 55, 0.1);
+            color: #e2e8f0;
+            font-family: 'Courier New', monospace;
+          }
+          
+          code { 
+            font-family: 'Courier New', monospace; 
+            background: rgba(212, 175, 55, 0.12); 
+            padding: 3px 7px; 
+            border-radius: 5px; 
+            color: #f1d592;
+            font-weight: 600;
+          }
+          
+          .footer { 
+            position: absolute;
+            bottom: 40px;
+            left: 60px;
+            right: 60px;
+            font-size: 8.5pt; 
+            color: #475569; 
+            text-align: center; 
+            border-top: 1px solid rgba(212, 175, 55, 0.1); 
+            padding-top: 25px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+          }
+          
+          .royal-accent-top {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 6px;
+            background: linear-gradient(90deg, #8c6a1c, #d4af37, #f1d592, #d4af37, #8c6a1c);
+          }
+          
+          .watermark {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-45deg);
+            font-size: 120pt;
+            font-family: 'Syne', sans-serif;
+            font-weight: 800;
+            color: rgba(212, 175, 55, 0.02);
+            white-space: nowrap;
+            pointer-events: none;
+            z-index: -1;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="page-container">
+          <div class="royal-accent-top"></div>
+          <div class="watermark">SOULTEXTIT</div>
+          <div class="header">
+            <div class="branding">sOuLTEXTit Neural Core Manuscript</div>
+            <h1>${title}</h1>
+          </div>
+          <div class="content-body">
+            ${htmlContent}
+          </div>
+          <div class="footer">
+            Protocol: Amoled Gold • Neural Shard Primus • ${new Date().toLocaleDateString()}
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    await page.setContent(professionalTemplate, { waitUntil: 'networkidle0' });
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      displayHeaderFooter: false,
+    });
+
+    await browser.close();
+
+    res.contentType("application/pdf");
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error("PDF Engine Failure:", err);
+    res.status(500).json({ error: "Neural printing node failed." });
   }
 });
 
