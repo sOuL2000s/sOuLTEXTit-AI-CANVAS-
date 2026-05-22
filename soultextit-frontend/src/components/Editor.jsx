@@ -173,7 +173,7 @@ const MathExtension = Node.create({
   }
 });
 import { io } from 'socket.io-client';
-import { Download, Mic, MicOff, Wand2, Check, X, Save, History, FileUp, Plus, Trash2, Loader2, Eye, Code, HelpCircle, Layers, Sparkles } from 'lucide-react';
+import { Download, Mic, MicOff, Wand2, Check, X, Save, History, FileUp, Plus, Trash2, Loader2, Eye, Code, HelpCircle, Layers, Sparkles, Volume2, VolumeX } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -188,6 +188,8 @@ const Editor = () => {
   const [selectedModel, setSelectedModel] = useState('');
   const [selectedSttModel, setSelectedSttModel] = useState('');
   const [isRecording, setIsRecording] = useState(false);
+  const [isDictating, setIsDictating] = useState(false);
+  const [speechRate, setSpeechRate] = useState(1);
   const [isProcessingStt, setIsProcessingStt] = useState(false);
   const [socket, setSocket] = useState(null);
   const [mediaRecorder, setMediaRecorder] = useState(null);
@@ -363,6 +365,38 @@ const Editor = () => {
       mediaRecorder.stop();
     }
   };
+
+  const handleDictate = () => {
+    if (isDictating) {
+      window.speechSynthesis.cancel();
+      setIsDictating(false);
+      return;
+    }
+
+    // editor.getText() automatically extracts pure text content, 
+    // effectively skipping markdown syntax and HTML tags for a clean read.
+    const text = editor.getText();
+    if (!text || text.trim().length === 0) return;
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = speechRate;
+    
+    // Attempt to select a higher quality natural voice if available in the browser
+    const voices = window.speechSynthesis.getVoices();
+    const premiumVoice = voices.find(v => v.name.toLowerCase().includes('google') || v.name.toLowerCase().includes('natural')) || voices[0];
+    if (premiumVoice) utterance.voice = premiumVoice;
+
+    utterance.onstart = () => setIsDictating(true);
+    utterance.onend = () => setIsDictating(false);
+    utterance.onerror = () => setIsDictating(false);
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // Cleanup speech synthesis on unmount
+  useEffect(() => {
+    return () => window.speechSynthesis.cancel();
+  }, []);
 
   // Trigger dirty state on title change only if we have an active session
   useEffect(() => {
@@ -711,6 +745,34 @@ const Editor = () => {
           </label>
           <button onClick={exportPDF} className="p-3 text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all" title="Export PDF"><Download size={18}/></button>
           <button onClick={() => setShowMdGuide(true)} className="p-3 text-cyan-400 hover:bg-cyan-500/10 rounded-xl transition-all" title="Markdown Guide"><HelpCircle size={18}/></button>
+          
+          <div className="flex items-center gap-1 bg-white/5 rounded-xl border border-white/5 overflow-hidden">
+            <button 
+              onClick={handleDictate} 
+              className={`p-3 transition-all ${isDictating ? 'text-pink-500 animate-pulse bg-pink-500/10' : 'text-pink-400 hover:bg-pink-500/10'}`} 
+              title={isDictating ? "Stop Dictation" : "Dictate (Read Aloud)"}
+            >
+              {isDictating ? <VolumeX size={18}/> : <Volume2 size={18}/>}
+            </button>
+            <select 
+              value={speechRate} 
+              onChange={(e) => {
+                const newRate = parseFloat(e.target.value);
+                setSpeechRate(newRate);
+                if (isDictating) {
+                  window.speechSynthesis.cancel();
+                  setIsDictating(false);
+                }
+              }}
+              className="bg-transparent text-xs font-black text-pink-400 px-3 pr-5 outline-none appearance-none cursor-pointer border-l border-white/5 hover:bg-white/5 h-full py-3"
+              title="Dictation Speed"
+            >
+              {[0.25, 0.5, 1, 1.5, 2, 3, 4].map(r => (
+                <option key={r} value={r} className="bg-slate-900">{r}x</option>
+              ))}
+            </select>
+          </div>
+
           <button onClick={showHistory} className="p-3 text-violet-400 hover:bg-white/10 rounded-xl transition-all" title="Manuscript History"><History size={18}/></button>
         </div>
       </motion.div>

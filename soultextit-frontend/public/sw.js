@@ -1,4 +1,4 @@
-const CACHE_NAME = 'soultextit-cache-v3';
+const CACHE_NAME = 'soultextit-cache-v4';
 const ASSETS = [
   '/',
   '/index.html',
