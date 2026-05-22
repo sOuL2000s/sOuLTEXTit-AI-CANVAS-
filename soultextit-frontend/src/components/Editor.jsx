@@ -173,7 +173,7 @@ const MathExtension = Node.create({
   }
 });
 import { io } from 'socket.io-client';
-import { Download, Mic, MicOff, Wand2, Check, X, Save, History, FileUp, Plus, Trash2, Loader2, Eye, Code, HelpCircle, Layers, Sparkles, Volume2, VolumeX } from 'lucide-react';
+import { Download, Mic, MicOff, Wand2, Check, X, Save, History, FileUp, Plus, Trash2, Loader2, Eye, Code, HelpCircle, Layers, Sparkles, Volume2, VolumeX, FileText, FileJson, Type, Bold, Italic, Strikethrough, Heading1, Heading2, Heading3, List, ListOrdered, Quote, SquareCode, Minus, Undo2, Redo2, Sigma } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -373,23 +373,39 @@ const Editor = () => {
       return;
     }
 
-    // editor.getText() automatically extracts pure text content, 
-    // effectively skipping markdown syntax and HTML tags for a clean read.
-    const text = editor.getText();
-    if (!text || text.trim().length === 0) return;
+    const { from, to } = editor.state.selection;
+    const isSelection = from !== to;
+    
+    // Context-aware dictation: speaks selected text or the entire manuscript if no selection exists
+    const textToSpeak = isSelection 
+      ? editor.state.doc.textBetween(from, to, ' ') 
+      : editor.getText();
 
-    const utterance = new SpeechSynthesisUtterance(text);
+    if (!textToSpeak || textToSpeak.trim().length === 0) return;
+
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
     utterance.rate = speechRate;
     
-    // Attempt to select a higher quality natural voice if available in the browser
+    // Neural Voice Selection Protocol
     const voices = window.speechSynthesis.getVoices();
-    const premiumVoice = voices.find(v => v.name.toLowerCase().includes('google') || v.name.toLowerCase().includes('natural')) || voices[0];
-    if (premiumVoice) utterance.voice = premiumVoice;
+    // Prioritize high-quality neural or natural-sounding voices provided by modern browser engines
+    const neuralVoice = voices.find(v => 
+      v.name.toLowerCase().includes('natural') || 
+      v.name.toLowerCase().includes('neural') ||
+      v.name.toLowerCase().includes('google')
+    ) || voices.find(v => v.lang.startsWith('en')) || voices[0];
+
+    if (neuralVoice) utterance.voice = neuralVoice;
 
     utterance.onstart = () => setIsDictating(true);
     utterance.onend = () => setIsDictating(false);
-    utterance.onerror = () => setIsDictating(false);
+    utterance.onerror = (event) => {
+      console.error("Neural Voice Engine Error:", event);
+      setIsDictating(false);
+    };
 
+    // Force clear the speech queue to prevent collision in Chromium/WebKit engines
+    window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
   };
 
@@ -515,36 +531,69 @@ const Editor = () => {
     } catch (e) { console.error("Deletion failed"); }
   };
 
-  const importFile = (e) => {
+  const importFile = async (e) => {
     const file = e.target.files[0];
-    const reader = new FileReader();
-    reader.onload = (ev) => editor.commands.setContent(ev.target.result);
-    reader.readAsText(file);
+    if (!file) return;
+
+    setLoading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await axiosAuth.post('/api/canvases/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      if (res.data.text) {
+        editor.commands.setContent(res.data.text);
+        if (res.data.title) setTitle(res.data.title);
+        setSaveStatus('dirty');
+      }
+    } catch (err) {
+      console.error("Neural Extraction Failure:", err);
+      alert("Nexus failed to decode the document structure.");
+    } finally {
+      setLoading(false);
+      e.target.value = null; 
+    }
   };
 
-  const exportPDF = async () => {
+  const exportDocument = async (format) => {
     if (!editor) return;
+    const content = editor.storage.markdown.getMarkdown();
+    const html = editor.getHTML();
+    
     setLoading(true);
     try {
-      const content = editor.storage.markdown.getMarkdown();
-      const response = await axiosAuth.post('/api/canvases/export-pdf', 
-        { title, content }, 
-        { responseType: 'blob' }
-      );
-      
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `${title}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      if (format === 'pdf') {
+        const response = await axiosAuth.post('/api/canvases/export-pdf', { title, content }, { responseType: 'blob' });
+        downloadBlob(response.data, `${title}.pdf`, 'application/pdf');
+      } else if (format === 'docx') {
+        const response = await axiosAuth.post('/api/canvases/export-docx', { title, content }, { responseType: 'blob' });
+        downloadBlob(response.data, `${title}.docx`, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      } else if (format === 'md') {
+        downloadBlob(new Blob([content]), `${title}.md`, 'text/markdown');
+      } else if (format === 'txt') {
+        downloadBlob(new Blob([editor.getText()]), `${title}.txt`, 'text/plain');
+      } else if (format === 'html') {
+        downloadBlob(new Blob([html]), `${title}.html`, 'text/html');
+      }
     } catch (err) {
-      console.error("Export failed:", err);
-      alert("Failed to generate professional PDF.");
+      console.error("Export Protocol Error:", err);
+      alert(`Failed to export as ${format.toUpperCase()}`);
     } finally {
       setLoading(false);
     }
+  };
+
+  const downloadBlob = (blob, fileName, type) => {
+    const url = window.URL.createObjectURL(new Blob([blob], { type }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   const showHistory = () => {
@@ -592,6 +641,16 @@ const Editor = () => {
         </ul>
       </div>
     </div>
+  );
+
+  const ToolbarButton = ({ onClick, isActive, icon: Icon, title, activeClass = "text-violet-400 bg-violet-400/10 border-violet-400/20" }) => (
+    <button
+      onClick={onClick}
+      className={`p-2 rounded-lg transition-all border border-transparent hover:bg-white/10 hover:border-white/10 ${isActive ? activeClass : "text-gray-400"}`}
+      title={title}
+    >
+      <Icon size={18} />
+    </button>
   );
 
   return (
@@ -739,11 +798,34 @@ const Editor = () => {
         </div>
 
         <div className="flex items-center gap-1 md:gap-2 bg-white/5 p-1 md:p-1.5 rounded-2xl border border-white/5 w-full sm:w-auto justify-end">
-          <label className="p-3 text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-all cursor-pointer">
+          <label className="p-3 text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-all cursor-pointer" title="Import Document (Any Format)">
             <FileUp size={18}/>
-            <input type="file" className="hidden" onChange={importFile} accept=".txt,.md"/>
+            <input type="file" className="hidden" onChange={importFile} accept=".txt,.md,.pdf,.docx,.doc,.html,.rtf"/>
           </label>
-          <button onClick={exportPDF} className="p-3 text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all" title="Export PDF"><Download size={18}/></button>
+          
+          <div className="relative group/export">
+            <button className="p-3 text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all" title="Export Manuscript">
+              <Download size={18}/>
+            </button>
+            <div className="absolute right-0 top-full mt-2 w-48 glass-panel rounded-xl opacity-0 invisible group-hover/export:opacity-100 group-hover/export:visible transition-all z-[150] shadow-2xl p-2 border-white/10">
+              <button onClick={() => exportDocument('pdf')} className="w-full flex items-center gap-3 p-3 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
+                <FileText size={14} className="text-rose-500" /> PDF (Neural Print)
+              </button>
+              <button onClick={() => exportDocument('docx')} className="w-full flex items-center gap-3 p-3 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
+                <Type size={14} className="text-blue-500" /> Word (.docx)
+              </button>
+              <button onClick={() => exportDocument('md')} className="w-full flex items-center gap-3 p-3 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
+                <FileJson size={14} className="text-violet-500" /> Markdown (.md)
+              </button>
+              <button onClick={() => exportDocument('html')} className="w-full flex items-center gap-3 p-3 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
+                <Code size={14} className="text-emerald-500" /> Web (.html)
+              </button>
+              <button onClick={() => exportDocument('txt')} className="w-full flex items-center gap-3 p-3 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
+                <Type size={14} className="text-gray-400" /> Plain Text (.txt)
+              </button>
+            </div>
+          </div>
+
           <button onClick={() => setShowMdGuide(true)} className="p-3 text-cyan-400 hover:bg-cyan-500/10 rounded-xl transition-all" title="Markdown Guide"><HelpCircle size={18}/></button>
           
           <div className="flex items-center gap-1 bg-white/5 rounded-xl border border-white/5 overflow-hidden">
@@ -954,13 +1036,126 @@ const Editor = () => {
       {/* The Main Stage */}
       <motion.div 
         layout
-        className="glass-panel p-6 sm:p-12 rounded-3xl sm:rounded-[2.5rem] shadow-2xl min-h-[60vh] sm:min-h-[70vh] relative overflow-hidden"
+        className="glass-panel rounded-3xl sm:rounded-[2.5rem] shadow-2xl min-h-[60vh] sm:min-h-[70vh] relative overflow-hidden flex flex-col"
       >
-        <div className="absolute top-0 right-5 sm:right-10 text-[60px] sm:text-[120px] font-black text-white/[0.02] pointer-events-none select-none uppercase tracking-tighter">
-          SOUL
+        {/* Markdown Toolbar */}
+        <div className="sticky top-0 z-30 p-3 sm:p-4 border-b border-white/5 bg-[#02010a]/80 backdrop-blur-xl flex flex-wrap items-center gap-1 shrink-0">
+          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().undo().run()} 
+              icon={Undo2} 
+              title="Undo" 
+            />
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().redo().run()} 
+              icon={Redo2} 
+              title="Redo" 
+            />
+          </div>
+
+          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} 
+              isActive={editor?.isActive('heading', { level: 1 })}
+              icon={Heading1} 
+              title="Heading 1" 
+            />
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} 
+              isActive={editor?.isActive('heading', { level: 2 })}
+              icon={Heading2} 
+              title="Heading 2" 
+            />
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} 
+              isActive={editor?.isActive('heading', { level: 3 })}
+              icon={Heading3} 
+              title="Heading 3" 
+            />
+          </div>
+
+          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().toggleBold().run()} 
+              isActive={editor?.isActive('bold')}
+              icon={Bold} 
+              title="Bold" 
+            />
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().toggleItalic().run()} 
+              isActive={editor?.isActive('italic')}
+              icon={Italic} 
+              title="Italic" 
+            />
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().toggleStrike().run()} 
+              isActive={editor?.isActive('strike')}
+              icon={Strikethrough} 
+              title="Strikethrough" 
+            />
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().toggleCode().run()} 
+              isActive={editor?.isActive('code')}
+              icon={Code} 
+              title="Inline Code" 
+            />
+          </div>
+
+          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().toggleBulletList().run()} 
+              isActive={editor?.isActive('bulletList')}
+              icon={List} 
+              title="Bullet List" 
+            />
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().toggleOrderedList().run()} 
+              isActive={editor?.isActive('orderedList')}
+              icon={ListOrdered} 
+              title="Ordered List" 
+            />
+          </div>
+
+          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().toggleBlockquote().run()} 
+              isActive={editor?.isActive('blockquote')}
+              icon={Quote} 
+              title="Blockquote" 
+            />
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().toggleCodeBlock().run()} 
+              isActive={editor?.isActive('codeBlock')}
+              icon={SquareCode} 
+              title="Code Block" 
+            />
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().setHorizontalRule().run()} 
+              icon={Minus} 
+              title="Horizontal Rule" 
+            />
+          </div>
+
+          <div className="flex items-center gap-1">
+            <ToolbarButton 
+              onClick={() => {
+                const latex = prompt('Enter LaTeX:');
+                if (latex) editor.chain().focus().insertContent({ type: 'math', attrs: { latex, displayMode: false } }).run();
+              }} 
+              icon={Sigma} 
+              title="Insert Math" 
+              activeClass="text-cyan-400 bg-cyan-400/10 border-cyan-400/20"
+            />
+          </div>
         </div>
-        <div className="relative z-10 h-full">
-          <EditorContent editor={editor} />
+
+        <div className="p-6 sm:p-12 flex-1 relative">
+          <div className="absolute top-0 right-5 sm:right-10 text-[60px] sm:text-[120px] font-black text-white/[0.02] pointer-events-none select-none uppercase tracking-tighter">
+            SOUL
+          </div>
+          <div className="relative z-10 h-full">
+            <EditorContent editor={editor} />
+          </div>
         </div>
       </motion.div>
     </div>

@@ -11,6 +11,11 @@ const { User, ApiKey, Canvas, Model } = require('./models/Schema');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const axios = require('axios');
 const puppeteer = require('puppeteer');
+const multer = require('multer');
+const mammoth = require('mammoth');
+const pdf = require('pdf-parse');
+const { Document, Packer, Paragraph, TextRun } = require('docx');
+const upload = multer({ storage: multer.memoryStorage() });
 const md = require('markdown-it')({
   html: true,
   linkify: true,
@@ -328,6 +333,57 @@ const callAI = async ({ prompt, category = 'text', preferredModelId = null }) =>
 
   throw new Error(`Exhausted all nodes for ${modelConfig.provider}. Support requested.`);
 };
+
+// Advanced Document Import (Universal Extraction)
+app.post('/api/canvases/import', auth, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file provided" });
+
+  try {
+    const filename = req.file.originalname;
+    const extension = filename.split('.').pop().toLowerCase();
+    let text = "";
+
+    if (extension === 'docx') {
+      const result = await mammoth.extractRawText({ buffer: req.file.buffer });
+      text = result.value;
+    } else if (extension === 'pdf') {
+      const data = await pdf(req.file.buffer);
+      text = data.text;
+    } else {
+      // Fallback for .txt, .md, .rtf, or unknown text formats
+      text = req.file.buffer.toString('utf-8');
+    }
+
+    res.json({ text, title: filename.replace(/\.[^/.]+$/, "") });
+  } catch (err) {
+    console.error("Extraction Error:", err);
+    res.status(500).json({ error: "Failed to extract neural content from file." });
+  }
+});
+
+// Advanced Export: Microsoft Word (.docx)
+app.post('/api/canvases/export-docx', auth, async (req, res) => {
+  const { title, content } = req.body;
+  try {
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: content.split('\n').map(line => 
+          new Paragraph({
+            children: [new TextRun(line)],
+          })
+        ),
+      }],
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+    res.setHeader('Content-Disposition', `attachment; filename=${title}.docx`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: "Word export failed." });
+  }
+});
 
 // Canvas Routes
 app.get('/api/canvases', auth, async (req, res) => {
