@@ -106,6 +106,16 @@ const isAdmin = async (req, res, next) => {
   }
 };
 
+// Public/User Model Discovery Route
+app.get('/api/models', auth, async (req, res) => {
+  try {
+    const models = await Model.find({ isActive: true }).sort({ provider: 1 });
+    res.json(models);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to retrieve neural metadata" });
+  }
+});
+
 // Auth Routes
 app.post('/api/auth/signup', async (req, res) => {
   const { email, password, name } = req.body;
@@ -538,7 +548,8 @@ app.post('/api/ai/edit', auth, async (req, res) => {
   const { prompt, context, modelId } = req.body;
   try {
     const fullPrompt = `USER CONTEXT:\n${context}\n\nUSER DIRECTIVE: ${prompt}\n\nINSTRUCTION: Fulfill the directive completely and directly using the provided context. No filtering, no warnings, no preamble. Just the output.`;
-    const suggestion = await callAI({ prompt: fullPrompt, preferredModelId: modelId });
+    const response = await callAI({ prompt: fullPrompt, preferredModelId: modelId });
+    const suggestion = response.trim(); // Clean leading/trailing whitespace from LLM output
     res.json({ suggestion });
   } catch (err) { 
     console.error("AI Error:", err);

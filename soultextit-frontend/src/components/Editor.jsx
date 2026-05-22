@@ -192,6 +192,7 @@ const Editor = () => {
   const [socket, setSocket] = useState(null);
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const [title, setTitle] = useState('A New Narrative');
+  const lastFocusedRef = useRef({ id: 'editor', start: 0, end: 0 });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [canvases, setCanvases] = useState([]);
   const [saveStatus, setSaveStatus] = useState('idle'); // idle, saving, saved
@@ -248,13 +249,16 @@ const Editor = () => {
       if (saveStatus !== 'dirty') {
         setSaveStatus('dirty');
       }
+    },
+    onFocus: () => {
+      lastFocusedRef.current = { id: 'editor', start: 0, end: 0 };
     }
   });
 
   useEffect(() => {
     const fetchModels = async () => {
       try {
-        const res = await axiosAuth.get('/api/admin/models');
+        const res = await axiosAuth.get('/api/models');
         const textModels = res.data.filter(m => m.category === 'text' && m.isActive);
         const speechModels = res.data.filter(m => m.category === 'stt' && m.isActive);
         setAvailableModels(textModels);
@@ -275,9 +279,24 @@ const Editor = () => {
     setSocket(newSocket);
 
     newSocket.on('transcription-result', (data) => {
-      if (editor && data.text) {
-        editor.chain().focus().insertContent(data.text + ' ').run();
+      if (!data.text) {
+        setIsProcessingStt(false);
+        setIsRecording(false);
+        return;
       }
+
+      // Trimming removes leading spaces often returned by Whisper/STT providers
+      const textToInsert = data.text.trim() + ' ';
+      const target = lastFocusedRef.current;
+
+      if (target.id === 'title') {
+        setTitle(current => current.substring(0, target.start) + textToInsert + current.substring(target.end));
+      } else if (target.id === 'prompt') {
+        setPrompt(current => current.substring(0, target.start) + textToInsert + current.substring(target.end));
+      } else if (editor) {
+        editor.chain().focus().insertContent(textToInsert).run();
+      }
+
       setIsProcessingStt(false);
       setIsRecording(false);
     });
@@ -314,7 +333,14 @@ const Editor = () => {
       recorder.onstop = () => {
         stream.getTracks().forEach(track => track.stop());
         if (socket) {
-          socket.emit('stop-recording', { modelId: selectedSttModel });
+          // Fallback logic for STT model
+          let sttModelToUse = selectedSttModel;
+          if (!sttModelToUse && sttModels.length > 0) {
+            sttModelToUse = sttModels.find(m => m.isDefault)?.modelId || sttModels[0].modelId;
+            setSelectedSttModel(sttModelToUse);
+          }
+          
+          socket.emit('stop-recording', { modelId: sttModelToUse });
           setIsProcessingStt(true);
         }
       };
@@ -366,10 +392,21 @@ const Editor = () => {
   }, [saveStatus, editor, title]);
 
   const handleAiAction = async () => {
-    if (!prompt || !selectedModel) {
-      if (!selectedModel) alert("Please select an AI model from the dropdown first.");
+    if (!prompt) return;
+    
+    // Fallback logic if user hasn't selected a model but models exist
+    let modelToUse = selectedModel;
+    if (!modelToUse && availableModels.length > 0) {
+      modelToUse = availableModels.find(m => m.isDefault)?.modelId || availableModels[0].modelId;
+      setSelectedModel(modelToUse);
+    }
+
+    if (!modelToUse) {
+      alert("Nexus Error: No active AI models detected in the current shard. Please contact an administrator.");
       return;
     }
+
+    setLoading(true);
     setLoading(true);
     
     let context = '';
@@ -654,7 +691,8 @@ const Editor = () => {
           <input 
             className="text-3xl sm:text-4xl lg:text-5xl font-display font-black outline-none bg-transparent text-white placeholder-white/10 w-full tracking-tighter hover:bg-white/5 px-2 rounded-lg transition-colors" 
             value={title} 
-            onChange={e => setTitle(e.target.value)} 
+            onChange={e => setTitle(e.target.value)}
+            onBlur={e => lastFocusedRef.current = { id: 'title', start: e.target.selectionStart, end: e.target.selectionEnd }}
           />
           <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-2 px-2">
             <span className={`text-[8px] md:text-[10px] font-bold uppercase tracking-[0.2em] px-2 py-0.5 rounded ${saveStatus === 'saved' ? 'bg-emerald-500/20 text-emerald-400' : (saveStatus === 'saving' ? 'bg-violet-500/20 text-violet-400' : 'bg-amber-500/20 text-amber-400')}`}>
@@ -714,6 +752,7 @@ const Editor = () => {
               placeholder="Transform text..."
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
+              onBlur={e => lastFocusedRef.current = { id: 'prompt', start: e.target.selectionStart, end: e.target.selectionEnd }}
               onKeyDown={(e) => e.key === 'Enter' && handleAiAction()}
             />
             <button 
