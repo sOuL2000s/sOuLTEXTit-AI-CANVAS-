@@ -237,7 +237,15 @@ const AnimatedRoutes = ({ user, setUser, handleLogout }) => {
 };
 
 function App() {
-  const [user, setUser] = useState(JSON.parse(localStorage.getItem('user')));
+  const [user, setUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('user');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      console.warn("Shields active: Local storage shard inaccessible.");
+      return null;
+    }
+  });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isServerLoading, setIsServerLoading] = useState(true);
 

@@ -204,9 +204,13 @@ const Editor = () => {
     });
     
     instance.interceptors.request.use((config) => {
-      const token = localStorage.getItem('token');
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+      try {
+        const token = localStorage.getItem('token');
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+      } catch (e) {
+        console.warn("Storage access restricted by host browser.");
       }
       return config;
     });

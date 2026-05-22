@@ -23,10 +23,17 @@ const Auth = ({ setUser }) => {
   const onGoogleSuccess = async (response) => {
     try {
       const res = await axios.post(`${import.meta.env.VITE_API_URL}/api/auth/google`, { credential: response.credential });
-      localStorage.setItem('token', res.data.token);
-      localStorage.setItem('user', JSON.stringify(res.data.user));
-      setUser(res.data.user);
-    } catch (err) { alert("Nexus Link Failed"); }
+      if (res.data?.token && res.data?.user) {
+        localStorage.setItem('token', res.data.token);
+        localStorage.setItem('user', JSON.stringify(res.data.user));
+        setUser(res.data.user);
+      } else {
+        throw new Error("Malformed Neural Data Received");
+      }
+    } catch (err) { 
+      console.error("Auth Shard Error:", err);
+      alert("Nexus Link Failed: Ensure Brave Shields are not blocking Google Identity scripts."); 
+    }
   };
 
   return (
