@@ -240,9 +240,11 @@ function App() {
   const [user, setUser] = useState(() => {
     try {
       const saved = localStorage.getItem('user');
-      return saved ? JSON.parse(saved) : null;
+      if (!saved || saved === "undefined") return null;
+      return JSON.parse(saved);
     } catch (e) {
-      console.warn("Shields active: Local storage shard inaccessible.");
+      console.error("Neural Shard Corruption: Resetting identity context.");
+      localStorage.removeItem('user');
       return null;
     }
   });

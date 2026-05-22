@@ -21,9 +21,10 @@ const Auth = ({ setUser }) => {
   };
 
   const onGoogleSuccess = async (response) => {
+    if (!response?.credential) return;
     try {
       const res = await axios.post(`${import.meta.env.VITE_API_URL}/api/auth/google`, { credential: response.credential });
-      if (res.data?.token && res.data?.user) {
+      if (res.data && res.data.token && res.data.user) {
         localStorage.setItem('token', res.data.token);
         localStorage.setItem('user', JSON.stringify(res.data.user));
         setUser(res.data.user);
