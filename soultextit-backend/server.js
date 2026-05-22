@@ -17,6 +17,9 @@ const md = require('markdown-it')({
   typographer: true
 });
 
+const NodeCache = require('node-cache');
+const systemCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
+
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
@@ -24,6 +27,39 @@ const io = new Server(httpServer, {
 });
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+/**
+ * CACHE MANAGEMENT LAYER
+ */
+const refreshSystemCache = async () => {
+  try {
+    const activeModels = await Model.find({ isActive: true }).lean();
+    const activeKeys = await ApiKey.find({ isActive: true }).sort({ priority: -1 }).lean();
+    systemCache.set('models', activeModels);
+    systemCache.set('keys', activeKeys);
+    console.log('Neural Cache Synchronized');
+  } catch (err) {
+    console.error('Cache Refresh Error:', err);
+  }
+};
+
+const getCachedModels = async () => {
+  let models = systemCache.get('models');
+  if (!models) {
+    await refreshSystemCache();
+    models = systemCache.get('models') || [];
+  }
+  return models;
+};
+
+const getCachedKeys = async () => {
+  let keys = systemCache.get('keys');
+  if (!keys) {
+    await refreshSystemCache();
+    keys = systemCache.get('keys') || [];
+  }
+  return keys;
+};
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -36,7 +72,10 @@ app.use((req, res, next) => {
 });
 
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB Connected"))
+  .then(() => {
+    console.log("MongoDB Connected");
+    refreshSystemCache();
+  })
   .catch(err => console.error("MongoDB Connection Error:", err));
 
 // Health Check
@@ -185,12 +224,15 @@ io.on('connection', (socket) => {
       const buffer = Buffer.concat(audioChunks);
       audioChunks = []; 
 
-      // 1. Resolve Model and its Provider from Database
-      const modelConfig = await Model.findOne({ modelId, category: 'stt', isActive: true });
+      // 1. Resolve Model and its Provider from Cache
+      const cachedModels = await getCachedModels();
+      const modelConfig = cachedModels.find(m => m.modelId === modelId && m.category === 'stt');
+      
       if (!modelConfig) throw new Error("STT Model configuration not found or inactive in Nexus.");
 
       const provider = modelConfig.provider;
-      const apiKeys = await ApiKey.find({ provider, isActive: true }).sort({ priority: -1 });
+      const cachedKeys = await getCachedKeys();
+      const apiKeys = cachedKeys.filter(k => k.provider === provider);
 
       if (!apiKeys.length) throw new Error(`No active API keys found for provider: ${provider}`);
 
@@ -228,22 +270,24 @@ io.on('connection', (socket) => {
 });
 
 const callAI = async ({ prompt, category = 'text', preferredModelId = null }) => {
-  // 1. Resolve Model
+  // 1. Resolve Model from Cache
+  const cachedModels = await getCachedModels();
   let modelConfig;
+
   if (preferredModelId) {
-    modelConfig = await Model.findOne({ modelId: preferredModelId, isActive: true });
+    modelConfig = cachedModels.find(m => m.modelId === preferredModelId);
   } else {
-    modelConfig = await Model.findOne({ category, isDefault: true, isActive: true }) || 
-                  await Model.findOne({ category, isActive: true }).sort({ priority: -1 });
+    modelConfig = cachedModels.find(m => m.category === category && m.isDefault) || 
+                  [...cachedModels].filter(m => m.category === category).sort((a,b) => b.priority - a.priority)[0];
   }
 
   if (!modelConfig) throw new Error(`No active models configured for ${category}`);
 
-  // 2. Fetch Keys for the Provider (Ordered by priority)
-  const apiKeys = await ApiKey.find({ 
-    provider: modelConfig.provider, 
-    isActive: true 
-  }).sort({ priority: -1 });
+  // 2. Fetch Keys from Cache
+  const cachedKeys = await getCachedKeys();
+  const apiKeys = cachedKeys
+    .filter(k => k.provider === modelConfig.provider)
+    .sort((a, b) => (b.priority - a.priority) || (a.usageStats.totalRequests - b.usageStats.totalRequests));
 
   if (apiKeys.length === 0) throw new Error(`No active API keys for provider: ${modelConfig.provider}`);
 
@@ -261,8 +305,14 @@ const callAI = async ({ prompt, category = 'text', preferredModelId = null }) =>
       return output;
     } catch (err) {
       console.error(`Provider Error [${modelConfig.provider}]:`, err.message);
-      await ApiKey.findByIdAndUpdate(keyDoc._id, { $inc: { 'usageStats.errorCount': 1 } });
-      continue; // Try next key
+      
+      const updateData = { $inc: { 'usageStats.errorCount': 1 } };
+      
+      // If rate limited, we could optionally flag the key as inactive for a short duration
+      // or simply log the failure to the stats.
+      await ApiKey.findByIdAndUpdate(keyDoc._id, updateData);
+      
+      continue; // Try next key in the balanced list
     }
   }
 
@@ -323,6 +373,9 @@ app.post('/api/canvases/export-pdf', auth, async (req, res) => {
         <meta charset="UTF-8">
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Syne:wght@800&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
+        <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js"></script>
+        <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/contrib/auto-render.min.js" onload="renderMathInElement(document.body, { delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}] });"></script>
         <style>
           @page { 
             margin: 0; 
@@ -513,6 +566,7 @@ app.get('/api/admin/keys', auth, isAdmin, async (req, res) => {
 app.post('/api/admin/keys', auth, isAdmin, async (req, res) => {
   try {
     const newKey = await ApiKey.create(req.body);
+    await refreshSystemCache();
     res.status(201).json(newKey);
   } catch (e) { res.status(400).json({ error: "Validation failed" }); }
 });
@@ -521,11 +575,13 @@ app.patch('/api/admin/keys/:id/toggle', auth, isAdmin, async (req, res) => {
   const key = await ApiKey.findById(req.params.id);
   key.isActive = !key.isActive;
   await key.save();
+  await refreshSystemCache();
   res.json(key);
 });
 
 app.delete('/api/admin/keys/:id', auth, isAdmin, async (req, res) => {
   await ApiKey.findByIdAndDelete(req.params.id);
+  await refreshSystemCache();
   res.sendStatus(204);
 });
 
@@ -536,6 +592,7 @@ app.get('/api/admin/models', auth, isAdmin, async (req, res) => {
 app.post('/api/admin/models', auth, isAdmin, async (req, res) => {
   try {
     const model = await Model.create(req.body);
+    await refreshSystemCache();
     res.status(201).json(model);
   } catch (e) { res.status(400).json({ error: "Model ID must be unique" }); }
 });
@@ -544,11 +601,13 @@ app.patch('/api/admin/models/:id/toggle', auth, isAdmin, async (req, res) => {
   const model = await Model.findById(req.params.id);
   model.isActive = !model.isActive;
   await model.save();
+  await refreshSystemCache();
   res.json(model);
 });
 
 app.delete('/api/admin/models/:id', auth, isAdmin, async (req, res) => {
   await Model.findByIdAndDelete(req.params.id);
+  await refreshSystemCache();
   res.sendStatus(204);
 });
 

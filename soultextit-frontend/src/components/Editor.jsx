@@ -49,7 +49,7 @@ const MathExtension = Node.create({
         'data-display': displayMode,
         class: displayMode ? 'math-block' : 'math-inline'
       },
-      displayMode ? `$$${latex}$$` : `$${latex}$`
+      displayMode ? `$$ ${latex} $$` : `$ ${latex} $`
     ];
   },
   addNodeView() {
@@ -94,12 +94,12 @@ const MathExtension = Node.create({
   addInputRules() {
     return [
       nodeInputRule({
-        find: /\$\$([^$]+)\$\$\s$/,
+        find: /\$\$([^$]+)\$\$$/,
         type: this.type,
         getAttributes: match => ({ latex: match[1], displayMode: true }),
       }),
       nodeInputRule({
-        find: /\$([^$]+)\$\s$/,
+        find: /\$([^$\s][^$]*[^$\s])\$$/,
         type: this.type,
         getAttributes: match => ({ latex: match[1], displayMode: false }),
       }),
@@ -108,12 +108,12 @@ const MathExtension = Node.create({
   addPasteRules() {
     return [
       nodePasteRule({
-        find: /\$\$([^$]+)\$\$/g,
+        find: /\$\$([\s\S]+?)\$\$/g,
         type: this.type,
         getAttributes: match => ({ latex: match[1], displayMode: true }),
       }),
       nodePasteRule({
-        find: /\$([^$]+)\$/g,
+        find: /\$([\s\S]+?)\$/g,
         type: this.type,
         getAttributes: match => ({ latex: match[1], displayMode: false }),
       }),
@@ -132,7 +132,41 @@ const MathExtension = Node.create({
           }
         },
         parse: {
-          // Parsing is handled by inputRules and pasteRules to avoid conflict with markdown-it logic
+          setup(markdownit) {
+            markdownit.use((md) => {
+              md.inline.ruler.after('escape', 'math_inline', (state, silent) => {
+                if (state.src[state.pos] !== '$') return false;
+                let end = state.src.indexOf('$', state.pos + 1);
+                if (end === -1) return false;
+                if (state.src[state.pos + 1] === '$') return false;
+                if (!silent) {
+                  const token = state.push('math_inline', 'span', 0);
+                  token.attrs = [['data-latex', state.src.slice(state.pos + 1, end)], ['data-display', 'false']];
+                }
+                state.pos = end + 1;
+                return true;
+              });
+              md.block.ruler.before('fence', 'math_block', (state, startLine, endLine, silent) => {
+                let pos = state.bMarks[startLine] + state.tShift[startLine];
+                let max = state.eMarks[startLine];
+                if (pos + 2 > max || state.src.slice(pos, pos + 2) !== '$$') return false;
+                if (silent) return true;
+                let nextLine = startLine + 1;
+                let content = '';
+                while (nextLine < endLine) {
+                  pos = state.bMarks[nextLine] + state.tShift[nextLine];
+                  max = state.eMarks[nextLine];
+                  if (state.src.slice(pos, pos + 2) === '$$') { nextLine++; break; }
+                  content += state.src.slice(pos, max) + '\n';
+                  nextLine++;
+                }
+                state.line = nextLine;
+                const token = state.push('math_block', 'div', 0);
+                token.attrs = [['data-latex', content.trim()], ['data-display', 'true']];
+                return true;
+              });
+            });
+          }
         }
       }
     };
@@ -716,21 +750,34 @@ const Editor = () => {
       <AnimatePresence>
         {suggestion && (
           <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-0 md:p-6 bg-black/90 backdrop-blur-2xl"
           >
-            <div className="w-full max-w-5xl glass-panel rounded-3xl overflow-hidden flex flex-col max-h-[90vh]">
-              <div className="p-4 md:p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 bg-white/5">
-                <div>
-                  <h3 className="text-lg md:text-xl font-display font-bold text-white flex items-center gap-2">
-                    <Wand2 className="text-violet-500" /> Review
-                  </h3>
-                  <p className="text-[10px] md:text-xs text-gray-400 mt-1 uppercase tracking-widest font-semibold">AI Vision Comparison</p>
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="w-full h-full md:h-auto md:max-w-6xl glass-panel md:rounded-3xl overflow-hidden flex flex-col md:max-h-[90vh] shadow-[0_0_100px_rgba(139,92,246,0.15)]"
+            >
+              {/* Diff Header */}
+              <div className="p-4 md:p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 bg-white/5 shrink-0">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-violet-600/20 flex items-center justify-center text-violet-400">
+                    <Wand2 size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-display font-bold text-white tracking-tight">Review Neural Shard</h3>
+                    <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.2em] mt-0.5">Harmonizing Intelligence</p>
+                  </div>
                 </div>
-                <div className="flex gap-2 md:gap-4 w-full md:w-auto">
-                  <button onClick={() => setSuggestion(null)} className="flex-1 md:flex-none px-4 md:px-6 py-2 rounded-xl text-xs md:text-sm font-bold text-gray-400 hover:bg-white/5 transition-all border border-white/5">
+                
+                <div className="flex gap-2 w-full md:w-auto">
+                  <button 
+                    onClick={() => setSuggestion(null)} 
+                    className="flex-1 md:flex-none px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-gray-400 hover:text-white hover:bg-white/5 transition-all border border-white/5"
+                  >
                     Discard
                   </button>
                   <button 
@@ -743,18 +790,20 @@ const Editor = () => {
                       setSuggestion(null); 
                       setSelectionRange(null);
                     }} 
-                    className="flex-1 md:flex-none px-4 md:px-8 py-2 rounded-xl bg-violet-600 text-white text-xs md:text-sm font-bold shadow-lg shadow-violet-500/40 hover:bg-violet-500 transition-all flex items-center justify-center gap-2"
+                    className="flex-1 md:flex-none px-6 py-2.5 rounded-xl bg-white text-black text-xs font-black uppercase tracking-widest shadow-xl shadow-white/5 hover:bg-violet-500 hover:text-white transition-all flex items-center justify-center gap-2 active:scale-95"
                   >
-                    <Check size={18}/> Commit
+                    <Check size={16}/> Integrate
                   </button>
                 </div>
               </div>
-              <div className="flex-1 overflow-auto bg-[#050508] p-1 md:p-4 rounded-b-3xl">
-                <div className="min-w-[600px] lg:min-w-0">
+
+              {/* Diff Content Area */}
+              <div className="flex-1 overflow-auto bg-[#050508] relative">
+                <div className="min-w-full">
                   <ReactDiffViewer 
                     oldValue={selectionRange ? editor.state.doc.textBetween(selectionRange.from, selectionRange.to, ' ') : editor.storage.markdown.getMarkdown()} 
                     newValue={suggestion} 
-                    splitView={window.innerWidth > 1024} 
+                    splitView={window.innerWidth > 768} 
                     useDarkTheme={true}
                     compareMethod={DiffMethod.WORDS}
                     styles={{
@@ -767,25 +816,32 @@ const Editor = () => {
                           removedColor: '#ef4444',
                           wordAddedBackground: 'rgba(16, 185, 129, 0.25)',
                           wordRemovedBackground: 'rgba(239, 68, 68, 0.25)',
-                          gutterBackground: 'rgba(0,0,0,0.2)',
+                          gutterBackground: 'rgba(255,255,255,0.02)',
                           gutterColor: '#4b5563',
                           codeFoldBackground: '#111827',
                           emptyLineBackground: 'transparent',
+                          lineNumberColor: '#334155'
                         }
                       },
                       contentText: {
-                        fontSize: '13px',
-                        lineHeight: '1.6',
-                        fontFamily: 'JetBrains Mono, ui-monospace, monospace',
+                        fontSize: '12px',
+                        lineHeight: '1.7',
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
                       },
                       gutter: {
-                        padding: '0 15px',
+                        padding: '0 12px',
+                        minWidth: '50px'
                       }
                     }}
                   />
                 </div>
               </div>
-            </div>
+              
+              {/* Footer Helper for Mobile */}
+              <div className="md:hidden p-3 bg-white/[0.02] border-t border-white/5 flex justify-center shrink-0">
+                <span className="text-[9px] font-black text-gray-600 uppercase tracking-[0.2em]">Horizontal scroll for detail</span>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
