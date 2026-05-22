@@ -282,7 +282,7 @@ function App() {
                 <Sparkles size={16} className="text-white" />
               </div>
               <h1 className="text-lg md:text-xl font-black bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400 tracking-tighter uppercase">
-                sOuL<span className="hidden xs:inline">uL</span><span className="text-violet-500">TEXT</span>it
+                sOuL<span className="text-violet-500">TEXT</span>it
               </h1>
             </NavLink>
 
