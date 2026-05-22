@@ -2,6 +2,10 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Typography from '@tiptap/extension-typography';
+import Underline from '@tiptap/extension-underline';
+import Subscript from '@tiptap/extension-subscript';
+import Superscript from '@tiptap/extension-superscript';
+import Highlight from '@tiptap/extension-highlight';
 import { Markdown } from 'tiptap-markdown';
 import { Node, mergeAttributes, nodeInputRule, nodePasteRule } from '@tiptap/core';
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
@@ -94,14 +98,14 @@ const MathExtension = Node.create({
   addInputRules() {
     return [
       nodeInputRule({
-        find: /\$\$([^$]+)\$\$$/,
+        find: /\$\$([^$]+)\$\$\s$/,
         type: this.type,
-        getAttributes: match => ({ latex: match[1], displayMode: true }),
+        getAttributes: match => ({ latex: match[1].trim(), displayMode: true }),
       }),
       nodeInputRule({
-        find: /\$([^$\s][^$]*[^$\s])\$$/,
+        find: /\$([^$]+)\$\s$/,
         type: this.type,
-        getAttributes: match => ({ latex: match[1], displayMode: false }),
+        getAttributes: match => ({ latex: match[1].trim(), displayMode: false }),
       }),
     ];
   },
@@ -173,7 +177,7 @@ const MathExtension = Node.create({
   }
 });
 import { io } from 'socket.io-client';
-import { Download, Mic, MicOff, Wand2, Check, X, Save, History, FileUp, Plus, Trash2, Loader2, Eye, Code, HelpCircle, Layers, Sparkles, Volume2, VolumeX, FileText, FileJson, Type, Bold, Italic, Strikethrough, Heading1, Heading2, Heading3, List, ListOrdered, Quote, SquareCode, Minus, Undo2, Redo2, Sigma } from 'lucide-react';
+import { Download, Mic, MicOff, Wand2, Check, X, Save, History, FileUp, Plus, Trash2, Loader2, Eye, Code, HelpCircle, Layers, Sparkles, Volume2, VolumeX, FileText, FileJson, Type, Bold, Italic, Strikethrough, Heading1, Heading2, Heading3, List, ListOrdered, Quote, SquareCode, Minus, Undo2, Redo2, Sigma, Copy, Eraser, Underline as UnderlineIcon, Subscript as SubscriptIcon, Superscript as SuperscriptIcon, Highlighter } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -232,6 +236,10 @@ const Editor = () => {
     extensions: [
       StarterKit,
       Typography,
+      Underline,
+      Subscript,
+      Superscript,
+      Highlight.configure({ multicolor: true }),
       MathExtension,
       Markdown.configure({
         html: false,
@@ -596,6 +604,19 @@ const Editor = () => {
     link.remove();
   };
 
+  const copyRawMarkdown = () => {
+    const md = editor.storage.markdown.getMarkdown();
+    navigator.clipboard.writeText(md);
+    alert('Markdown copied to clipboard.');
+  };
+
+  const clearCanvas = () => {
+    if (confirm('Clear entire manuscript? This cannot be undone.')) {
+      editor.commands.clearContent();
+      setSaveStatus('dirty');
+    }
+  };
+
   const showHistory = () => {
     setIsSidebarOpen(true);
   };
@@ -626,19 +647,30 @@ const Editor = () => {
       </div>
       <div className="p-4 rounded-xl bg-cyan-500/5 border border-cyan-500/10">
         <h4 className="text-cyan-400 font-black uppercase text-[10px] mb-3 tracking-widest flex items-center gap-2">
-          <Sparkles size={12}/> Mathematics
+          <Sparkles size={12}/> Mathematics (KaTeX)
         </h4>
-        <p className="text-[9px] text-gray-500 mb-2 leading-relaxed italic">Neural Core renders LaTeX math syntax automatically.</p>
-        <ul className="space-y-3 text-gray-300 font-mono text-[11px]">
-          <li>
-            <span className="text-cyan-500/80">$ E=mc^2 $</span>
-            <span className="block text-[9px] text-gray-600 mt-1">Inline Equation</span>
-          </li>
-          <li>
-            <span className="text-cyan-500/80">$$ \int_a^b f(x)dx $$</span>
-            <span className="block text-[9px] text-gray-600 mt-1">Display Block</span>
-          </li>
-        </ul>
+        <p className="text-[9px] text-gray-500 mb-3 leading-relaxed italic">Use standard LaTeX syntax for neural rendering.</p>
+        <div className="space-y-4">
+          <div>
+            <p className="text-[10px] text-cyan-400/60 uppercase font-black mb-1">Step 1: Syntax</p>
+            <ul className="space-y-2 text-gray-300 font-mono text-[11px]">
+              <li><code className="text-cyan-500">$...$</code> followed by space for inline</li>
+              <li><code className="text-cyan-500">$$...$$</code> followed by space for blocks</li>
+            </ul>
+          </div>
+          <div>
+            <p className="text-[10px] text-cyan-400/60 uppercase font-black mb-1">Step 2: Common Symbols</p>
+            <ul className="space-y-1 text-gray-400 font-mono text-[10px]">
+              <li>Fractions: <code className="text-gray-300">{"\\frac{a}{b}"}</code></li>
+              <li>Greek: <code className="text-gray-300">{"\\alpha, \\beta, \\gamma"}</code></li>
+              <li>Sum: <code className="text-gray-300">{"\\sum_{i=0}^n"}</code></li>
+              <li>Matrix: <code className="text-gray-300">{"\\begin{matrix}...\\end{matrix}"}</code></li>
+            </ul>
+          </div>
+          <div className="pt-2">
+            <p className="text-[10px] text-gray-500 leading-tight">Protip: Click any rendered formula to edit the source code. The renderer triggers when you press Space after the closing symbol.</p>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1088,16 +1120,43 @@ const Editor = () => {
               title="Italic" 
             />
             <ToolbarButton 
+              onClick={() => editor.chain().focus().toggleUnderline().run()} 
+              isActive={editor?.isActive('underline')}
+              icon={UnderlineIcon} 
+              title="Underline" 
+            />
+            <ToolbarButton 
               onClick={() => editor.chain().focus().toggleStrike().run()} 
               isActive={editor?.isActive('strike')}
               icon={Strikethrough} 
               title="Strikethrough" 
             />
             <ToolbarButton 
+              onClick={() => editor.chain().focus().toggleHighlight().run()} 
+              isActive={editor?.isActive('highlight')}
+              icon={Highlighter} 
+              title="Highlight" 
+            />
+            <ToolbarButton 
               onClick={() => editor.chain().focus().toggleCode().run()} 
               isActive={editor?.isActive('code')}
               icon={Code} 
               title="Inline Code" 
+            />
+          </div>
+
+          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().toggleSubscript().run()} 
+              isActive={editor?.isActive('subscript')}
+              icon={SubscriptIcon} 
+              title="Subscript" 
+            />
+            <ToolbarButton 
+              onClick={() => editor.chain().focus().toggleSuperscript().run()} 
+              isActive={editor?.isActive('superscript')}
+              icon={SuperscriptIcon} 
+              title="Superscript" 
             />
           </div>
 
@@ -1136,7 +1195,7 @@ const Editor = () => {
             />
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
             <ToolbarButton 
               onClick={() => {
                 const latex = prompt('Enter LaTeX:');
@@ -1145,6 +1204,20 @@ const Editor = () => {
               icon={Sigma} 
               title="Insert Math" 
               activeClass="text-cyan-400 bg-cyan-400/10 border-cyan-400/20"
+            />
+          </div>
+
+          <div className="flex items-center gap-1">
+            <ToolbarButton 
+              onClick={copyRawMarkdown} 
+              icon={Copy} 
+              title="Copy Raw Markdown" 
+            />
+            <ToolbarButton 
+              onClick={clearCanvas} 
+              icon={Eraser} 
+              title="Clear All" 
+              activeClass="text-rose-400 bg-rose-400/10 border-rose-400/20"
             />
           </div>
         </div>
