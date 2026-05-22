@@ -14,10 +14,11 @@ createRoot(document.getElementById('root')).render(
   </StrictMode>,
 )
 
+// Register a minimal Service Worker to maintain PWA installability without caching
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(err => {
-      console.log('Service Worker registration failed: ', err);
-    });
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => console.log('Neural Shard PWA Active'))
+      .catch(err => console.error('PWA Link Failed', err));
   });
 }
