@@ -7,6 +7,7 @@ const Admin = () => {
   const [activeTab, setActiveTab] = useState('models');
   const [models, setModels] = useState([]);
   const [keys, setKeys] = useState([]);
+  const [selectedIds, setSelectedIds] = useState([]);
   const [stats, setStats] = useState({ totalKeys: 0, activeModels: 0, totalRequests: 0, systemStatus: 'Initializing' });
   const [loading, setLoading] = useState(true);
 
@@ -66,6 +67,26 @@ const Admin = () => {
     if (!confirm('This action will disrupt current node pathways. Proceed?')) return;
     await api.delete(`/${type}/${id}`);
     fetchData();
+  };
+
+  const handleBulkAction = async (type, action) => {
+    if (selectedIds.length === 0) return;
+    if (action === 'delete' && !confirm(`Purge ${selectedIds.length} selected items?`)) return;
+
+    setLoading(true);
+    try {
+      await Promise.all(selectedIds.map(id => {
+        if (action === 'delete') return api.delete(`/${type}/${id}`);
+        return api.patch(`/${type}/${id}/toggle`);
+      }));
+      setSelectedIds([]);
+      fetchData();
+    } catch (e) { alert("Bulk action failed"); }
+    setLoading(false);
+  };
+
+  const toggleSelection = (id) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
   const StatCard = ({ icon: Icon, label, value, color }) => (
@@ -177,14 +198,29 @@ const Admin = () => {
 
               {/* Models List - Enhanced Grid */}
               <div className="xl:w-2/3 space-y-4 order-1 xl:order-2">
+                {selectedIds.length > 0 && activeTab === 'models' && (
+                  <div className="glass-panel p-4 rounded-2xl border-violet-500/30 bg-violet-500/5 flex items-center justify-between mb-6">
+                    <span className="text-[10px] font-black uppercase text-violet-400">{selectedIds.length} Models Selected</span>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleBulkAction('models', 'toggle')} className="px-4 py-2 rounded-lg bg-white/5 text-white text-[10px] font-black uppercase tracking-widest hover:bg-white/10">Toggle Power</button>
+                      <button onClick={() => handleBulkAction('models', 'delete')} className="px-4 py-2 rounded-lg bg-rose-500/20 text-rose-400 text-[10px] font-black uppercase tracking-widest hover:bg-rose-500/30">Purge</button>
+                    </div>
+                  </div>
+                )}
                 {models.length === 0 ? (
                   <div className="glass-panel p-20 text-center rounded-3xl border-dashed border-white/10">
                     <Layers className="mx-auto text-gray-700 mb-4" size={48} />
                     <p className="text-gray-500 font-bold uppercase tracking-widest text-xs">No models active in current shard</p>
                   </div>
                 ) : models.map(model => (
-                  <motion.div layout key={model._id} className="premium-card p-6 rounded-2xl flex items-center justify-between group">
+                  <motion.div layout key={model._id} className={`premium-card p-6 rounded-2xl flex items-center justify-between group ${selectedIds.includes(model._id) ? 'border-violet-500 bg-violet-500/5' : ''}`}>
                     <div className="flex items-center gap-6">
+                      <input 
+                        type="checkbox" 
+                        checked={selectedIds.includes(model._id)} 
+                        onChange={() => toggleSelection(model._id)}
+                        className="w-5 h-5 rounded border-white/10 bg-white/5 text-violet-600 focus:ring-violet-500 cursor-pointer"
+                      />
                       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-600/20 to-pink-600/20 border border-white/5 flex items-center justify-center text-violet-400 font-display font-black text-xl shadow-inner">
                         {model.provider[0].toUpperCase()}
                       </div>
@@ -271,7 +307,17 @@ const Admin = () => {
               </div>
 
               {/* Keys Management Table */}
-              <div className="lg:col-span-8 glass-panel rounded-3xl overflow-x-auto border-white/5">
+              <div className="lg:col-span-8 space-y-4">
+                {selectedIds.length > 0 && activeTab === 'keys' && (
+                  <div className="glass-panel p-4 rounded-2xl border-amber-500/30 bg-amber-500/5 flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase text-amber-400">{selectedIds.length} Nodes Selected</span>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleBulkAction('keys', 'toggle')} className="px-4 py-2 rounded-lg bg-white/5 text-white text-[10px] font-black uppercase tracking-widest">Toggle Nodes</button>
+                      <button onClick={() => handleBulkAction('keys', 'delete')} className="px-4 py-2 rounded-lg bg-rose-500/20 text-rose-400 text-[10px] font-black uppercase tracking-widest">Purge</button>
+                    </div>
+                  </div>
+                )}
+                <div className="glass-panel rounded-3xl overflow-x-auto border-white/5">
                 <table className="w-full text-left border-collapse min-w-[600px]">
                   <thead className="bg-white/5 text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">
                     <tr>
@@ -283,10 +329,18 @@ const Admin = () => {
                   </thead>
                   <tbody className="divide-y divide-white/5">
                     {keys.map(k => (
-                      <tr key={k._id} className="hover:bg-white/[0.02] transition-colors group">
-                        <td className="px-6 py-5">
-                          <div className="font-bold text-white mb-0.5">{k.label}</div>
-                          <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest">{k.provider} • Node {k._id.slice(-4)}</div>
+                      <tr key={k._id} className={`hover:bg-white/[0.02] transition-colors group ${selectedIds.includes(k._id) ? 'bg-amber-500/5' : ''}`}>
+                        <td className="px-6 py-5 flex items-center gap-4">
+                          <input 
+                            type="checkbox" 
+                            checked={selectedIds.includes(k._id)} 
+                            onChange={() => toggleSelection(k._id)}
+                            className="w-4 h-4 rounded border-white/10 bg-white/5 text-amber-500 focus:ring-amber-500 cursor-pointer"
+                          />
+                          <div>
+                            <div className="font-bold text-white mb-0.5">{k.label}</div>
+                            <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest">{k.provider} • Node {k._id.slice(-4)}</div>
+                          </div>
                         </td>
                         <td className="px-6 py-5">
                           <div className="text-sm font-mono text-gray-300">{k.usageStats?.totalRequests || 0} calls</div>
@@ -317,6 +371,7 @@ const Admin = () => {
                 </table>
               </div>
             </div>
+          </div>
           </motion.div>
         )}
 

@@ -96,9 +96,11 @@ const Home = () => {
           </div>
           <div className="relative">
              <div className="aspect-square bg-white/5 rounded-3xl border border-white/10 flex items-center justify-center p-12 overflow-hidden group">
-                <div className="text-[200px] font-black text-white opacity-[0.03] group-hover:scale-110 transition-transform duration-700">SOUL</div>
-                <div className="absolute inset-12 border border-white/5 rounded-2xl flex items-center justify-center">
-                   <Sparkles size={80} className="text-violet-500/40" />
+                <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] group-hover:scale-110 group-hover:opacity-[0.05] transition-all duration-700">
+                   <img src="/favicon.svg" alt="" className="w-full h-full p-20" />
+                </div>
+                <div className="absolute inset-12 border border-white/5 rounded-2xl flex items-center justify-center bg-[#02010a]/40 backdrop-blur-sm">
+                   <img src="/favicon.svg" alt="sOuLTEXTit Logo" className="w-32 h-32 md:w-48 md:h-48 drop-shadow-[0_0_30px_rgba(139,92,246,0.3)]" />
                 </div>
              </div>
           </div>

@@ -18,12 +18,7 @@ const ConversationSchema = new mongoose.Schema({
   messages: [{
     role: { type: String, enum: ['user', 'assistant', 'system'] },
     content: String,
-    timestamp: { type: Date, default: Date.now },
-    attachments: [{
-      name: String,
-      content: String,
-      type: String
-    }]
+    timestamp: { type: Date, default: Date.now }
   }],
   lastModified: { type: Date, default: Date.now }
 });

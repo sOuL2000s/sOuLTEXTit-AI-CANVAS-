@@ -7,6 +7,7 @@ import Conversations from './pages/Conversations';
 import Profile from './pages/Profile';
 import Home from './pages/Home';
 import About from './pages/About';
+import Pricing from './pages/Pricing';
 import Legal from './pages/Legal';
 import './App.css';
 
@@ -239,6 +240,7 @@ const AnimatedRoutes = ({ user, setUser, handleLogout }) => {
           <Route path="/auth" element={!user ? <Auth setUser={setUser} /> : <Navigate to="/editor" />} />
           <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to="/" />} />
           <Route path="/about" element={<About />} />
+          <Route path="/pricing" element={<Pricing />} />
           <Route path="/privacy" element={<Legal type="privacy" />} />
           <Route path="/terms" element={<Legal type="terms" />} />
         </Routes>
@@ -431,6 +433,7 @@ function App() {
                 <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6">Nexus</h3>
                 <div className="flex flex-col gap-4">
                   <NavLink to="/about" className="text-xs text-gray-500 hover:text-white transition-colors">About Us</NavLink>
+                  <NavLink to="/pricing" className="text-xs text-gray-500 hover:text-white transition-colors">Pricing</NavLink>
                   <NavLink to="/privacy" className="text-xs text-gray-500 hover:text-white transition-colors">Privacy Policy</NavLink>
                   <NavLink to="/terms" className="text-xs text-gray-500 hover:text-white transition-colors">Terms of Service</NavLink>
                 </div>

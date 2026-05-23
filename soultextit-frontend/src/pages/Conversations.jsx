@@ -18,6 +18,8 @@ const Conversations = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState([]);
+  const [editingFileIndex, setEditingFileIndex] = useState(null);
+  const [isExtracting, setIsExtracting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessingStt, setIsProcessingStt] = useState(false);
@@ -133,13 +135,29 @@ const Conversations = () => {
     }
   };
 
+  const handleInputChange = (e) => {
+    const value = e.target.value;
+    if (value.length > 800) {
+      const virtualFileName = `Draft_Context_${new Date().toLocaleTimeString().replace(/:/g, '-')}.txt`;
+      setAttachments(prev => [...prev, {
+        name: virtualFileName,
+        content: value,
+        type: 'text/plain'
+      }]);
+      setInput('');
+    } else {
+      setInput(value);
+    }
+  };
+
   const handleSend = async () => {
     if (loading) {
       handleStop();
       return;
     }
     
-    if (!input.trim() && attachments.length === 0) return;
+    const finalInput = input.trim();
+    if (!finalInput && attachments.length === 0) return;
     
     let currentChat = activeChat;
     if (!currentChat) {
@@ -147,8 +165,10 @@ const Conversations = () => {
     }
     if (!currentChat) return;
 
-    const userMessage = { role: 'user', content: input, attachments: [...attachments], timestamp: new Date() };
+    const userMessage = { role: 'user', content: finalInput || "[Neural Shard Attachment]", attachments: [...attachments], timestamp: new Date() };
     const newMessages = [...messages, userMessage];
+    
+    // Immediate state update
     setMessages(newMessages);
     setInput('');
     setAttachments([]);
@@ -158,27 +178,131 @@ const Conversations = () => {
 
     try {
       const modelId = userPrefs?.textModelId || models.find(m => m.category === 'text' && m.isDefault)?.modelId || models.find(m => m.category === 'text')?.modelId;
+      
       const res = await axiosAuth.post('/api/ai/chat', 
         { messages: newMessages, modelId },
         { signal: abortControllerRef.current.signal }
       );
-      const assistantMessage = { role: 'assistant', content: res.data.response, timestamp: new Date() };
+      
+      const assistantMessage = { 
+        role: 'assistant', 
+        content: res.data.response, 
+        timestamp: new Date() 
+      };
+      
       const finalMessages = [...newMessages, assistantMessage];
+      
+      // Local state retains full data for immediate UI rendering
       setMessages(finalMessages);
-      await axiosAuth.patch(`/api/conversations/${currentChat._id}`, {
-        messages: finalMessages,
-        title: input.trim().slice(0, 30) || currentChat.title
+
+      // Prepare data for MongoDB: Append placeholder and strip heavy objects
+      const persistenceMessages = finalMessages.map(msg => {
+        let dbContent = msg.content;
+        if (msg.role === 'user' && msg.attachments?.length > 0) {
+          dbContent += `\n\n[${msg.attachments.length} file(s) attached]`;
+        }
+        return {
+          role: msg.role,
+          content: dbContent,
+          timestamp: msg.timestamp
+        };
       });
+
+      // Save to persistence layer
+      const updatedChat = await axiosAuth.patch(`/api/conversations/${currentChat._id}`, {
+        messages: persistenceMessages,
+        title: finalInput ? (finalInput.length > 30 ? finalInput.slice(0, 30) + "..." : finalInput) : currentChat.title
+      });
+      
+      setActiveChat({ ...updatedChat.data, messages: finalMessages });
       fetchData();
     } catch (e) { 
       if (axios.isCancel(e)) {
         console.log("Neural stream terminated by user.");
       } else {
-        alert("Neural Overload"); 
+        alert("Neural Overload: Memory synchronization failed."); 
       }
     } finally { 
       setLoading(false);
       abortControllerRef.current = null;
+    }
+  };
+
+  const processFile = async (file) => {
+    setIsExtracting(true);
+
+    // Immediate preview and handling for images
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setAttachments(prev => [...prev, { 
+          name: file.name, 
+          content: reader.result, // This is the Base64 DataURL for images
+          type: file.type,
+          isImage: true 
+        }]);
+        setIsExtracting(false);
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await axiosAuth.post('/api/canvases/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      if (res.data.text) {
+        setAttachments(prev => [...prev, { 
+          name: file.name, 
+          content: res.data.text, 
+          type: file.type,
+          isImage: false
+        }]);
+      }
+    } catch (err) {
+      console.error("Extraction failed:", err);
+      const reader = new FileReader();
+      reader.onload = () => setAttachments(prev => [...prev, { name: file.name, content: reader.result, type: file.type, isImage: false }]);
+      reader.readAsText(file);
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) processFile(file);
+    e.target.value = null;
+  };
+
+  const handlePaste = (e) => {
+    const items = e.clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].kind === 'file') {
+        const file = items[i].getAsFile();
+        if (file) processFile(file);
+      }
+    }
+  };
+
+  const updateAttachment = (index, updates) => {
+    const updated = [...attachments];
+    updated[index] = { ...updated[index], ...updates };
+    setAttachments(updated);
+  };
+
+  const openFileEditor = (index) => {
+    setEditingFileIndex(index);
+  };
+
+  const saveFileEdit = (content) => {
+    if (editingFileIndex !== null) {
+      updateAttachment(editingFileIndex, { content });
+      setEditingFileIndex(null);
     }
   };
 
@@ -203,14 +327,7 @@ const Conversations = () => {
     }
   };
 
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setAttachments([...attachments, { name: file.name, content: reader.result, type: file.type }]);
-    reader.readAsText(file);
-    e.target.value = null;
-  };
+
 
   const exportChat = () => {
     const content = messages.map(m => `${m.role.toUpperCase()}:\n${m.content}\n`).join('\n---\n\n');
@@ -240,13 +357,19 @@ const Conversations = () => {
     if (!activeChat) return;
     const updated = messages.filter((_, i) => i !== index);
     setMessages(updated);
-    await axiosAuth.patch(`/api/conversations/${activeChat._id}`, { messages: updated });
+
+    const persistenceMessages = updated.map(msg => ({
+      role: msg.role,
+      content: msg.content,
+      timestamp: msg.timestamp
+    }));
+
+    await axiosAuth.patch(`/api/conversations/${activeChat._id}`, { messages: persistenceMessages });
   };
 
   const handleUpdateMessage = async (index) => {
     if (!editText.trim() || !activeChat) return;
     
-    // Truncate messages to the edited point
     const truncated = messages.slice(0, index);
     const updatedUserMessage = { ...messages[index], content: editText, timestamp: new Date() };
     const newMessages = [...truncated, updatedUserMessage];
@@ -267,13 +390,24 @@ const Conversations = () => {
       const assistantMessage = { role: 'assistant', content: res.data.response, timestamp: new Date() };
       const finalMessages = [...newMessages, assistantMessage];
       setMessages(finalMessages);
+
+      const persistenceMessages = finalMessages.map(msg => ({
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.timestamp
+      }));
+
       await axiosAuth.patch(`/api/conversations/${activeChat._id}`, {
-        messages: finalMessages,
+        messages: persistenceMessages,
         lastModified: Date.now()
       });
       fetchData();
     } catch (e) { 
-      if (!axios.isCancel(e)) alert("Neural Re-generation Failed"); 
+      if (axios.isCancel(e)) {
+        console.log("Neural stream terminated by user.");
+      } else {
+        alert("Neural Re-generation Failed"); 
+      }
     } finally { 
       setLoading(false);
       abortControllerRef.current = null;
@@ -296,7 +430,14 @@ const Conversations = () => {
       const assistantMessage = { role: 'assistant', content: res.data.response, timestamp: new Date() };
       const final = [...truncatedMessages, assistantMessage];
       setMessages(final);
-      await axiosAuth.patch(`/api/conversations/${activeChat._id}`, { messages: final });
+
+      const persistenceMessages = final.map(msg => ({
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.timestamp
+      }));
+
+      await axiosAuth.patch(`/api/conversations/${activeChat._id}`, { messages: persistenceMessages });
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
@@ -454,22 +595,94 @@ const Conversations = () => {
           <div ref={chatEndRef} />
         </div>
 
-        <div className="p-6 shrink-0">
+        <div className="p-6 shrink-0 relative">
+          {/* Enhanced Attachment Shards */}
           {attachments.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-3 px-4">
+            <div className="flex flex-wrap gap-3 mb-4 px-2">
               {attachments.map((file, i) => (
-                <div key={i} className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl text-[10px] font-bold text-gray-400 group">
-                  <FileText size={12} className="text-violet-500" />
-                  {file.name}
-                  <button onClick={() => setAttachments(attachments.filter((_, idx) => idx !== i))} className="hover:text-rose-500"><X size={12}/></button>
-                </div>
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  key={i} 
+                  className="flex flex-col gap-2 p-3 bg-white/[0.03] border border-white/10 rounded-2xl min-w-[140px] max-w-[200px] group relative hover:border-violet-500/50 transition-all shadow-lg overflow-hidden"
+                >
+                  <div className="flex items-center justify-between relative z-10">
+                    <div className="p-2 rounded-lg bg-violet-500/10 text-violet-400">
+                      <FileText size={14} />
+                    </div>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {!file.isImage && <button onClick={() => openFileEditor(i)} className="p-1.5 hover:bg-white/10 rounded-md text-gray-400 hover:text-white" title="Edit Content"><Pencil size={12}/></button>}
+                      <button onClick={() => setAttachments(attachments.filter((_, idx) => idx !== i))} className="p-1.5 hover:bg-rose-500/10 rounded-md text-gray-400 hover:text-rose-500"><X size={12}/></button>
+                    </div>
+                  </div>
+
+                  {file.isImage && (
+                    <div className="absolute inset-0 z-0 opacity-20 group-hover:opacity-40 transition-opacity">
+                      <img src={file.content} alt="Preview" className="w-full h-full object-cover" />
+                    </div>
+                  )}
+
+                  <div className="mt-1 relative z-10">
+                    <p className="text-[10px] font-black text-white truncate uppercase tracking-tighter" title={file.name}>{file.name}</p>
+                    <p className="text-[8px] font-bold text-gray-500 uppercase tracking-widest">{Math.round(file.content.length / 1024 * 10) / 10} KB • {file.type.split('/')[1] || 'shd'}</p>
+                  </div>
+                </motion.div>
               ))}
             </div>
           )}
-          <div className="glass-panel p-2 rounded-2xl md:rounded-[2rem] border-white/10 shadow-2xl">
+
+          {/* Neural File Editor Overlay */}
+          <AnimatePresence>
+            {editingFileIndex !== null && (
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+                className="absolute bottom-full left-6 right-6 mb-4 glass-panel p-6 rounded-[2rem] z-[100] shadow-[0_-20px_50px_rgba(0,0,0,0.5)] border-violet-500/30"
+              >
+                <div className="flex justify-between items-center mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-violet-500/20 rounded-lg text-violet-400"><Pencil size={16}/></div>
+                    <div>
+                      <input 
+                        className="bg-transparent text-sm font-black text-white outline-none border-b border-transparent focus:border-violet-500 transition-colors uppercase tracking-tight"
+                        value={attachments[editingFileIndex].name}
+                        onChange={(e) => updateAttachment(editingFileIndex, { name: e.target.value })}
+                      />
+                      <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest mt-0.5">Editing Neural Shard</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setEditingFileIndex(null)} className="p-2 text-gray-500 hover:text-white"><X size={20}/></button>
+                </div>
+                <textarea 
+                  className="w-full h-48 bg-black/40 border border-white/5 p-4 rounded-xl text-xs font-mono text-gray-300 outline-none focus:border-violet-500/50 transition-all custom-scrollbar resize-none"
+                  value={attachments[editingFileIndex].content}
+                  onChange={(e) => updateAttachment(editingFileIndex, { content: e.target.value })}
+                />
+                <div className="flex justify-end gap-3 mt-4">
+                  <button onClick={() => setEditingFileIndex(null)} className="px-6 py-2 rounded-xl bg-white text-black text-[10px] font-black uppercase tracking-widest hover:bg-violet-500 hover:text-white transition-all shadow-lg active:scale-95">Save Changes</button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div className={`glass-panel p-2 rounded-2xl md:rounded-[2rem] border-white/10 shadow-2xl transition-all ${isExtracting ? 'opacity-50 pointer-events-none' : ''}`}>
+            {isExtracting && (
+              <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/20 rounded-[2rem]">
+                <Loader2 className="animate-spin text-violet-500" />
+              </div>
+            )}
             <div className="flex items-end gap-2">
-              <label className="p-3 text-gray-500 hover:text-white cursor-pointer"><Paperclip size={20} /><input type="file" className="hidden" onChange={handleFileUpload} /></label>
-              <textarea className="w-full bg-transparent p-3 text-sm font-medium outline-none text-white placeholder-gray-600 resize-none max-h-32 min-h-[44px]" rows="1" placeholder="Synchronize..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())} />
+              <label className="p-3 text-gray-500 hover:text-white cursor-pointer" title="Attach any file (extracted automatically)"><Paperclip size={20} /><input type="file" className="hidden" onChange={handleFileUpload} /></label>
+              <textarea 
+                className="w-full bg-transparent p-3 text-sm font-medium outline-none text-white placeholder-gray-600 resize-none max-h-32 min-h-[44px]" 
+                rows="1" 
+                placeholder="Synchronize (Paste files here)..." 
+                value={input} 
+                onChange={handleInputChange} 
+                onPaste={handlePaste}
+                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())} 
+              />
               <div className="flex gap-2 p-1">
                 <button onClick={toggleRecording} className={`p-3 rounded-xl ${isRecording ? 'bg-rose-500 text-white animate-pulse' : 'bg-white/5 text-rose-400'}`}>{isProcessingStt ? <Loader2 size={20} className="animate-spin" /> : isRecording ? <MicOff size={20}/> : <Mic size={20} />}</button>
                 <button 
