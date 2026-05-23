@@ -35,6 +35,46 @@ const io = new Server(httpServer, {
 });
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const Razorpay = require('razorpay');
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
+
+const PLAN_LIMITS = {
+  free: { aiEdits: 10, sttMinutes: 30, canvases: 5, history: 5 },
+  creative: { aiEdits: 100, sttMinutes: 180, canvases: 50, history: 25 },
+  quantum: { aiEdits: 500, sttMinutes: 600, canvases: Infinity, history: Infinity },
+  omnicore: { aiEdits: Infinity, sttMinutes: Infinity, canvases: Infinity, history: Infinity }
+};
+
+/**
+ * ENTITLEMENT MIDDLEWARE
+ */
+const checkLimits = (type) => async (req, res, next) => {
+  const user = await User.findById(req.userId);
+  const plan = user.subscription.plan;
+  const limits = PLAN_LIMITS[plan];
+
+  if (type === 'aiEdit') {
+    const today = new Date().toDateString();
+    if (user.usageStats.aiEditsToday.date !== today) {
+      user.usageStats.aiEditsToday = { count: 0, date: today };
+    }
+    if (user.usageStats.aiEditsToday.count >= limits.aiEdits) {
+      return res.status(403).json({ error: `Daily AI limit reached for ${plan} plan.` });
+    }
+    req.userDoc = user; 
+  }
+
+  if (type === 'canvas') {
+    const count = await Canvas.countDocuments({ userId: req.userId });
+    if (count >= limits.canvases) {
+      return res.status(403).json({ error: `Canvas limit reached for ${plan} plan.` });
+    }
+  }
+  next();
+};
 
 /**
  * CACHE MANAGEMENT LAYER
@@ -422,7 +462,15 @@ app.delete('/api/canvases/:id', auth, async (req, res) => {
 });
 
 app.post('/api/canvases', auth, async (req, res) => {
-  const { title, content } = req.body;
+  const { title, content, isNew } = req.body;
+  if (isNew) {
+    const count = await Canvas.countDocuments({ userId: req.userId });
+    const user = await User.findById(req.userId);
+    if (count >= PLAN_LIMITS[user.subscription.plan].canvases) {
+       return res.status(403).json({ error: "Canvas limit reached." });
+    }
+  }
+  
   if (!title) return res.status(400).json({ error: "Title required" });
   
   try {
@@ -677,8 +725,11 @@ app.post('/api/canvases/export-pdf', auth, async (req, res) => {
 });
 
 // AI Processing
-app.post('/api/ai/edit', auth, async (req, res) => {
+app.post('/api/ai/edit', auth, checkLimits('aiEdit'), async (req, res) => {
   const { prompt, context, modelId } = req.body;
+  // Increment usage
+  req.userDoc.usageStats.aiEditsToday.count += 1;
+  await req.userDoc.save();
   try {
     const fullPrompt = `USER CONTEXT:\n${context}\n\nUSER DIRECTIVE: ${prompt}\n\nINSTRUCTION: Fulfill the directive completely and directly using the provided context. No filtering, no warnings, no preamble. Just the output.`;
     const response = await callAI({ prompt: fullPrompt, preferredModelId: modelId });
@@ -776,6 +827,56 @@ app.patch('/api/conversations/:id', auth, async (req, res) => {
 app.delete('/api/conversations/:id', auth, async (req, res) => {
   await Conversation.findOneAndDelete({ _id: req.params.id, userId: req.userId });
   res.sendStatus(204);
+});
+
+// Payment Routes
+app.post('/api/payments/create-order', auth, async (req, res) => {
+  const { amount, currency } = req.body;
+  try {
+    // Razorpay requires the amount to be an INTEGER in the smallest currency unit (paise/cents).
+    // JavaScript floating point math (e.g., 14.99 * 83 * 100) can create decimals that Razorpay rejects.
+    const calculatedAmount = Math.round(Number(amount) * 100);
+
+    if (isNaN(calculatedAmount) || calculatedAmount <= 0) {
+      return res.status(400).json({ error: "Invalid currency amount conversion." });
+    }
+
+    const options = {
+      amount: calculatedAmount,
+      currency: currency || 'USD',
+      receipt: `rcpt_${req.userId.toString().slice(-8)}_${Date.now()}`,
+    };
+    
+    const order = await razorpay.orders.create(options);
+    res.json(order);
+  } catch (e) { 
+    console.error("Razorpay Order Creation Error:", e);
+    res.status(500).json({ error: e.message }); 
+  }
+});
+
+app.post('/api/payments/verify', auth, async (req, res) => {
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan } = req.body;
+  
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    return res.status(400).json({ error: "Missing verification parameters." });
+  }
+
+  const crypto = require('crypto');
+  const hmac = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET);
+  hmac.update(razorpay_order_id + "|" + razorpay_payment_id);
+  const generated_signature = hmac.digest('hex');
+
+  if (generated_signature === razorpay_signature) {
+    await User.findByIdAndUpdate(req.userId, {
+      'subscription.plan': plan,
+      'subscription.razorpay_payment_id': razorpay_payment_id,
+      'subscription.expiry': new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    });
+    res.json({ success: true });
+  } else {
+    res.status(400).json({ success: false });
+  }
 });
 
 // Admin Panel Extensions

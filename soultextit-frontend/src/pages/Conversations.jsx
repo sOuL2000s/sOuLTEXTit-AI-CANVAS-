@@ -82,7 +82,11 @@ const Conversations = () => {
     const socket = io(import.meta.env.VITE_API_URL);
     socketRef.current = socket;
     socket.on('transcription-result', (data) => {
-      if (data.text) setInput(prev => prev + ' ' + data.text.trim());
+      if (data.text) {
+        // Trimming removes leading/trailing spaces often returned by STT providers
+        const textToInsert = data.text.trim() + ' ';
+        setInput(prev => (prev ? prev.trimEnd() + ' ' : '') + textToInsert);
+      }
       setIsProcessingStt(false);
       setIsRecording(false);
     });

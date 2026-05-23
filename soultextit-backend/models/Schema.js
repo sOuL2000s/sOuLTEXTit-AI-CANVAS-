@@ -4,8 +4,19 @@ const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String },
   name: String,
-  role: { type: String, default: 'user' }, // 'admin' or 'user'
+  role: { type: String, default: 'user' }, 
   googleId: String,
+  subscription: {
+    plan: { type: String, enum: ['free', 'creative', 'quantum', 'omnicore'], default: 'free' },
+    status: { type: String, default: 'active' },
+    expiry: Date,
+    razorpay_payment_id: String,
+    razorpay_subscription_id: String
+  },
+  usageStats: {
+    aiEditsToday: { count: { type: Number, default: 0 }, date: { type: String, default: () => new Date().toDateString() } },
+    sttMinutesThisMonth: { count: { type: Number, default: 0 }, month: { type: Number, default: () => new Date().getMonth() } }
+  },
   preferences: {
     textModelId: String,
     sttModelId: String
