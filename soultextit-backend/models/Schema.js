@@ -5,7 +5,27 @@ const UserSchema = new mongoose.Schema({
   password: { type: String },
   name: String,
   role: { type: String, default: 'user' }, // 'admin' or 'user'
-  googleId: String
+  googleId: String,
+  preferences: {
+    textModelId: String,
+    sttModelId: String
+  }
+});
+
+const ConversationSchema = new mongoose.Schema({
+  userId: mongoose.Schema.Types.ObjectId,
+  title: { type: String, default: 'New Conversation' },
+  messages: [{
+    role: { type: String, enum: ['user', 'assistant', 'system'] },
+    content: String,
+    timestamp: { type: Date, default: Date.now },
+    attachments: [{
+      name: String,
+      content: String,
+      type: String
+    }]
+  }],
+  lastModified: { type: Date, default: Date.now }
 });
 
 const ApiKeySchema = new mongoose.Schema({
@@ -55,5 +75,6 @@ module.exports = {
   User: mongoose.model('User', UserSchema),
   ApiKey: mongoose.model('ApiKey', ApiKeySchema),
   Model: mongoose.model('Model', ModelSchema),
-  Canvas: mongoose.model('Canvas', CanvasSchema)
+  Canvas: mongoose.model('Canvas', CanvasSchema),
+  Conversation: mongoose.model('Conversation', ConversationSchema)
 };

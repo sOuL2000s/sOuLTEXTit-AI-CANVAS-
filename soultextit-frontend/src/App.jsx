@@ -3,10 +3,15 @@ import { BrowserRouter as Router, Routes, Route, Navigate, NavLink, useLocation 
 import Editor from './components/Editor';
 import Admin from './pages/Admin';
 import Auth from './pages/Auth';
+import Conversations from './pages/Conversations';
+import Profile from './pages/Profile';
+import Home from './pages/Home';
+import About from './pages/About';
+import Legal from './pages/Legal';
 import './App.css';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X, Layout, Shield, LogOut, Sparkles, User, Settings, Ghost } from 'lucide-react';
+import { Menu, X, Layout, Shield, LogOut, Sparkles, User, Settings, Ghost, HelpCircle } from 'lucide-react';
 import axios from 'axios';
 
 const ServerBootGame = () => {
@@ -227,9 +232,15 @@ const AnimatedRoutes = ({ user, setUser, handleLogout }) => {
         className="w-full"
       >
         <Routes location={location}>
-          <Route path="/" element={user ? <Editor key={user._id} /> : <Navigate to="/auth" />} />
-          <Route path="/auth" element={!user ? <Auth setUser={setUser} /> : <Navigate to="/" />} />
+          <Route path="/" element={<Home />} />
+          <Route path="/editor" element={user ? <Editor key={user._id} /> : <Navigate to="/auth" />} />
+          <Route path="/chat" element={user ? <Conversations /> : <Navigate to="/auth" />} />
+          <Route path="/profile" element={user ? <Profile setUser={setUser} /> : <Navigate to="/auth" />} />
+          <Route path="/auth" element={!user ? <Auth setUser={setUser} /> : <Navigate to="/editor" />} />
           <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to="/" />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/privacy" element={<Legal type="privacy" />} />
+          <Route path="/terms" element={<Legal type="terms" />} />
         </Routes>
       </motion.div>
     </AnimatePresence>
@@ -271,9 +282,13 @@ function App() {
   };
 
   const navItems = user ? [
-    { name: 'Canvas', path: '/', icon: Layout },
+    { name: 'Canvas', path: '/editor', icon: Layout },
+    { name: 'Dialogues', path: '/chat', icon: Sparkles },
+    { name: 'Profile', path: '/profile', icon: User },
     ...(user.role === 'admin' ? [{ name: 'Nexus', path: '/admin', icon: Shield }] : []),
-  ] : [];
+  ] : [
+    { name: 'About', path: '/about', icon: HelpCircle },
+  ];
 
   return (
     <Router>
@@ -406,10 +421,28 @@ function App() {
           <AnimatedRoutes user={user} setUser={setUser} handleLogout={handleLogout} />
         </main>
 
-        <footer className="fixed bottom-0 left-0 w-full p-4 pointer-events-none z-40 hidden md:block">
-            <div className="max-w-7xl mx-auto flex justify-between items-center text-[8px] font-black uppercase tracking-[0.4em] text-gray-600">
-                <p>System Shard: Primary-01</p>
-                <p>© {new Date().getFullYear()} sOuLTEXTit Neural Labs</p>
+        <footer className="w-full py-12 px-6 border-t border-white/5 bg-[#02010a]/80">
+            <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-12">
+              <div className="col-span-2">
+                <h2 className="text-xl font-black text-white uppercase tracking-tighter mb-4">sOuL<span className="text-violet-500">TEXT</span>it</h2>
+                <p className="text-gray-500 text-sm max-w-sm">The premium AI-powered workspace for modern digital alchemists. Transmuting thoughts into manuscripts through a unified neural core.</p>
+              </div>
+              <div>
+                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6">Nexus</h3>
+                <div className="flex flex-col gap-4">
+                  <NavLink to="/about" className="text-xs text-gray-500 hover:text-white transition-colors">About Us</NavLink>
+                  <NavLink to="/privacy" className="text-xs text-gray-500 hover:text-white transition-colors">Privacy Policy</NavLink>
+                  <NavLink to="/terms" className="text-xs text-gray-500 hover:text-white transition-colors">Terms of Service</NavLink>
+                </div>
+              </div>
+              <div>
+                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6">Status</h3>
+                <div className="flex items-center gap-2 text-emerald-500 text-xs font-bold">
+                  <div className="w-2 h-2 rounded-full bg-current animate-pulse" />
+                  All Shards Operational
+                </div>
+                <p className="text-[8px] text-gray-600 font-black uppercase tracking-[0.4em] mt-8">© {new Date().getFullYear()} sOuLTEXTit Neural Labs</p>
+              </div>
             </div>
         </footer>
       </div>

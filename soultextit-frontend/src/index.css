@@ -149,6 +149,18 @@ h1, h2, h3, .font-display {
   background: rgba(124, 58, 237, 0.6);
 }
 
+/* Custom Scrollbar for Code Blocks */
+.scrollbar-thin::-webkit-scrollbar {
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
 /* Tiptap Customization */
 .ProseMirror {
   min-height: 65vh;

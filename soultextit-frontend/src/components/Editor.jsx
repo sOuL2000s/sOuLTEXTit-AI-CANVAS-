@@ -894,33 +894,9 @@ const Editor = () => {
       {/* AI command dock */}
       <div className="sticky top-20 md:top-24 z-40 mb-8 md:mb-12 px-1">
         <div className="glass-panel p-1.5 md:p-2 rounded-2xl flex flex-col lg:flex-row gap-2 shadow-2xl shadow-purple-900/20 border-white/10">
-          <div className="flex flex-col sm:flex-row gap-2">
-            <select 
-              className="bg-white/5 text-[9px] md:text-[10px] font-black uppercase tracking-widest text-gray-300 outline-none px-3 md:px-4 py-2.5 md:py-3 rounded-xl border border-white/5 appearance-none cursor-pointer hover:bg-white/10 flex-1 lg:min-w-[140px]"
-              title="Text Generation Model"
-              value={selectedModel || ""}
-              onChange={(e) => setSelectedModel(e.target.value)}
-            >
-              {availableModels.length === 0 && <option value="">No Text Models</option>}
-              {availableModels.map(m => (
-                <option key={m.modelId} value={m.modelId} className="bg-slate-900">
-                  AI: {m.displayName || m.modelId}
-                </option>
-              ))}
-            </select>
-            <select 
-              className="bg-white/5 text-[9px] md:text-[10px] font-black uppercase tracking-widest text-gray-300 outline-none px-3 md:px-4 py-2.5 md:py-3 rounded-xl border border-white/5 appearance-none cursor-pointer hover:bg-white/10 flex-1 lg:min-w-[140px]"
-              title="Speech-to-Text Model"
-              value={selectedSttModel || ""}
-              onChange={(e) => setSelectedSttModel(e.target.value)}
-            >
-              {sttModels.length === 0 && <option value="">Native Speech</option>}
-              {sttModels.map(m => (
-                <option key={m.modelId} value={m.modelId} className="bg-slate-900">
-                  Mic: {m.displayName || m.modelId}
-                </option>
-              ))}
-            </select>
+          <div className="flex items-center gap-3 px-4 py-2.5 bg-white/5 rounded-xl border border-white/5">
+             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+             <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Neural Link Synchronized</span>
           </div>
           <div className="flex-1 relative flex items-center bg-white/5 rounded-xl border border-white/5">
             <input 
