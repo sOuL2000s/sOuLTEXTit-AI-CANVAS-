@@ -11,7 +11,7 @@ const PLANS = [
     subtitle: "Free Forever",
     icon: Globe,
     color: "blue",
-    features: ["10 AI Edits / Day", "5 Manuscripts", "30m Voice Typing", "Watermarked Exports"]
+    features: ["10 AI Edits / Day", "5 Manuscripts", "5 Dialogue Timelines", "30m Voice Typing", "Watermarked Exports"]
   },
   {
     id: 'creative',
@@ -21,7 +21,7 @@ const PLANS = [
     icon: Zap,
     color: "violet",
     recommended: true,
-    features: ["100 AI Edits / Day", "50 Manuscripts", "180m Voice Typing", "No Watermarks", "Ad-Free"]
+    features: ["100 AI Edits / Day", "50 Manuscripts", "25 Dialogue Timelines", "180m Voice Typing", "No Watermarks"]
   },
   {
     id: 'quantum',
@@ -30,7 +30,7 @@ const PLANS = [
     subtitle: "Pro Performance",
     icon: Sparkles,
     color: "pink",
-    features: ["500 AI Edits / Day", "Unlimited Manuscripts", "600m Voice Typing", "Custom Branding", "Priority Support"]
+    features: ["500 AI Edits / Day", "Unlimited Manuscripts", "100 Dialogue Timelines", "600m Voice Typing", "Custom Branding"]
   },
   {
     id: 'omnicore',
@@ -39,7 +39,7 @@ const PLANS = [
     subtitle: "The Ultimate Shard",
     icon: Crown,
     color: "amber",
-    features: ["Unlimited AI Edits", "Unlimited Everything", "Highest Priority Nodes", "Dedicated Manager", "24/7 VIP Channel"]
+    features: ["Unlimited AI Edits", "Unlimited Manuscripts", "Unlimited Dialogues", "Unlimited Voice Typing", "24/7 VIP Shard"]
   }
 ];
 

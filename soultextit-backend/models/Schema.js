@@ -9,13 +9,15 @@ const UserSchema = new mongoose.Schema({
   subscription: {
     plan: { type: String, enum: ['free', 'creative', 'quantum', 'omnicore'], default: 'free' },
     status: { type: String, default: 'active' },
-    expiry: Date,
+    expiry: { type: Date, default: () => new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000) }, // Default far future for free
     razorpay_payment_id: String,
     razorpay_subscription_id: String
   },
   usageStats: {
     aiEditsToday: { count: { type: Number, default: 0 }, date: { type: String, default: () => new Date().toDateString() } },
-    sttMinutesThisMonth: { count: { type: Number, default: 0 }, month: { type: Number, default: () => new Date().getMonth() } }
+    sttMinutesThisMonth: { count: { type: Number, default: 0 }, month: { type: Number, default: () => new Date().getMonth() } },
+    totalCanvases: { type: Number, default: 0 },
+    totalDialogues: { type: Number, default: 0 }
   },
   preferences: {
     textModelId: String,

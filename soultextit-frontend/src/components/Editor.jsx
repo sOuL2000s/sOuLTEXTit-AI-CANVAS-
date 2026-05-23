@@ -284,8 +284,11 @@ const Editor = () => {
     fetchModels();
     fetchCanvases();
 
-    // Initialize Neural Socket
-    const newSocket = io(import.meta.env.VITE_API_URL);
+    // Initialize Neural Socket with identity context for usage tracking
+    const user = JSON.parse(localStorage.getItem('user'));
+    const newSocket = io(import.meta.env.VITE_API_URL, {
+      query: { userId: user?._id }
+    });
     setSocket(newSocket);
 
     newSocket.on('transcription-result', (data) => {

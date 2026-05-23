@@ -79,7 +79,10 @@ const Conversations = () => {
   };
 
   const initSocket = () => {
-    const socket = io(import.meta.env.VITE_API_URL);
+    const user = JSON.parse(localStorage.getItem('user'));
+    const socket = io(import.meta.env.VITE_API_URL, {
+      query: { userId: user?._id }
+    });
     socketRef.current = socket;
     socket.on('transcription-result', (data) => {
       if (data.text) {
@@ -187,7 +190,7 @@ const Conversations = () => {
         { messages: newMessages, modelId },
         { signal: abortControllerRef.current.signal }
       );
-      
+
       const assistantMessage = { 
         role: 'assistant', 
         content: res.data.response, 
@@ -195,11 +198,9 @@ const Conversations = () => {
       };
       
       const finalMessages = [...newMessages, assistantMessage];
-      
-      // Local state retains full data for immediate UI rendering
       setMessages(finalMessages);
 
-      // Prepare data for MongoDB: Append placeholder and strip heavy objects
+      // Prepare data for MongoDB
       const persistenceMessages = finalMessages.map(msg => {
         let dbContent = msg.content;
         if (msg.role === 'user' && msg.attachments?.length > 0) {
@@ -212,7 +213,6 @@ const Conversations = () => {
         };
       });
 
-      // Save to persistence layer
       const updatedChat = await axiosAuth.patch(`/api/conversations/${currentChat._id}`, {
         messages: persistenceMessages,
         title: finalInput ? (finalInput.length > 30 ? finalInput.slice(0, 30) + "..." : finalInput) : currentChat.title
@@ -220,9 +220,13 @@ const Conversations = () => {
       
       setActiveChat({ ...updatedChat.data, messages: finalMessages });
       fetchData();
+
     } catch (e) { 
       if (axios.isCancel(e)) {
         console.log("Neural stream terminated by user.");
+      } else if (e.response?.status === 403) {
+        alert(e.response.data.error || "Dialogue Limit Reached.");
+        setMessages(messages);
       } else {
         alert("Neural Overload: Memory synchronization failed."); 
       }

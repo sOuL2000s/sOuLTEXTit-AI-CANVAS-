@@ -42,10 +42,10 @@ const razorpay = new Razorpay({
 });
 
 const PLAN_LIMITS = {
-  free: { aiEdits: 10, sttMinutes: 30, canvases: 5, history: 5 },
-  creative: { aiEdits: 100, sttMinutes: 180, canvases: 50, history: 25 },
-  quantum: { aiEdits: 500, sttMinutes: 600, canvases: Infinity, history: Infinity },
-  omnicore: { aiEdits: Infinity, sttMinutes: Infinity, canvases: Infinity, history: Infinity }
+  free: { aiEdits: 10, sttMinutes: 30, canvases: 5, dialogues: 5 },
+  creative: { aiEdits: 100, sttMinutes: 180, canvases: 50, dialogues: 25 },
+  quantum: { aiEdits: 500, sttMinutes: 600, canvases: Infinity, dialogues: 100 },
+  omnicore: { aiEdits: Infinity, sttMinutes: Infinity, canvases: Infinity, dialogues: Infinity }
 };
 
 /**
@@ -53,6 +53,14 @@ const PLAN_LIMITS = {
  */
 const checkLimits = (type) => async (req, res, next) => {
   const user = await User.findById(req.userId);
+  if (!user) return res.status(404).json({ error: "User not found" });
+
+  // Nexus Overlord (Admin) Exception: Unlimited Shard Access
+  if (user.role === 'admin') {
+    req.userDoc = user;
+    return next();
+  }
+
   const plan = user.subscription.plan;
   const limits = PLAN_LIMITS[plan];
 
@@ -62,17 +70,35 @@ const checkLimits = (type) => async (req, res, next) => {
       user.usageStats.aiEditsToday = { count: 0, date: today };
     }
     if (user.usageStats.aiEditsToday.count >= limits.aiEdits) {
-      return res.status(403).json({ error: `Daily AI limit reached for ${plan} plan.` });
+      return res.status(403).json({ error: `Daily AI transmutations exhausted for ${plan.toUpperCase()} tier.` });
     }
-    req.userDoc = user; 
   }
 
   if (type === 'canvas') {
     const count = await Canvas.countDocuments({ userId: req.userId });
     if (count >= limits.canvases) {
-      return res.status(403).json({ error: `Canvas limit reached for ${plan} plan.` });
+      return res.status(403).json({ error: `Manuscript archive limit reached for ${plan.toUpperCase()} tier.` });
     }
   }
+
+  if (type === 'dialogue') {
+    const count = await Conversation.countDocuments({ userId: req.userId });
+    if (count >= limits.dialogues) {
+      return res.status(403).json({ error: `Dialogue timeline limit reached for ${plan.toUpperCase()} tier.` });
+    }
+  }
+
+  if (type === 'stt') {
+    const currentMonth = new Date().getMonth();
+    if (user.usageStats.sttMinutesThisMonth.month !== currentMonth) {
+      user.usageStats.sttMinutesThisMonth = { count: 0, month: currentMonth };
+    }
+    if (user.usageStats.sttMinutesThisMonth.count >= limits.sttMinutes) {
+      return res.status(403).json({ error: `Monthly Voice Typing frequency reached for ${plan.toUpperCase()} tier.` });
+    }
+  }
+
+  req.userDoc = user; 
   next();
 };
 
@@ -327,6 +353,19 @@ io.on('connection', (socket) => {
             $inc: { 'usageStats.totalRequests': 1 },
             'usageStats.lastUsed': new Date()
           });
+
+          // Accurate usage tracking for Voice Shards
+          const userId = socket.handshake.query.userId;
+          if (userId) {
+             const user = await User.findById(userId);
+             if (user && user.role !== 'admin') {
+                // Approximate minutes based on buffer size (~1.5MB per minute for high-quality audio)
+                const estimatedMinutes = Math.max(0.1, buffer.length / (1024 * 1024 * 1.5));
+                user.usageStats.sttMinutesThisMonth.count += estimatedMinutes;
+                await user.save();
+             }
+          }
+
           break; 
         } catch (e) { 
           console.error(`STT Node Fail [${keyDoc._id}]:`, e.message); 
@@ -461,19 +500,14 @@ app.delete('/api/canvases/:id', auth, async (req, res) => {
   }
 });
 
-app.post('/api/canvases', auth, async (req, res) => {
-  const { title, content, isNew } = req.body;
-  if (isNew) {
-    const count = await Canvas.countDocuments({ userId: req.userId });
-    const user = await User.findById(req.userId);
-    if (count >= PLAN_LIMITS[user.subscription.plan].canvases) {
-       return res.status(403).json({ error: "Canvas limit reached." });
-    }
-  }
-  
+app.post('/api/canvases', auth, checkLimits('canvas'), async (req, res) => {
+  const { title, content } = req.body;
   if (!title) return res.status(400).json({ error: "Title required" });
   
   try {
+    // Check if this is a new manuscript or updating existing
+    const isNew = !(await Canvas.findOne({ userId: req.userId, title }));
+
     const canvas = await Canvas.findOneAndUpdate(
       { userId: req.userId, title },
       { 
@@ -483,8 +517,14 @@ app.post('/api/canvases', auth, async (req, res) => {
       },
       { upsert: true, returnDocument: 'after' }
     );
+
+    if (isNew && req.userDoc.role !== 'admin') {
+      await User.findByIdAndUpdate(req.userId, { $inc: { 'usageStats.totalCanvases': 1 } });
+    }
+
     res.json(canvas);
   } catch (err) {
+    console.error("Canvas Sync Error:", err);
     res.status(500).json({ error: "Failed to synchronize manuscript" });
   }
 });
@@ -549,6 +589,9 @@ app.post('/api/canvases/export-pdf', auth, async (req, res) => {
   const { title, content } = req.body;
   
   try {
+    const user = await User.findById(req.userId);
+    const isFree = user.subscription.plan === 'free' && user.role !== 'admin';
+
     const browser = await puppeteer.launch({ 
       headless: "new",
       args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -678,7 +721,7 @@ app.post('/api/canvases/export-pdf', auth, async (req, res) => {
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%) rotate(-45deg);
-            font-size: 120pt;
+            font-size: 100pt;
             font-family: 'Syne', sans-serif;
             font-weight: 800;
             color: rgba(212, 175, 55, 0.02);
@@ -686,12 +729,28 @@ app.post('/api/canvases/export-pdf', auth, async (req, res) => {
             pointer-events: none;
             z-index: -1;
           }
+
+          .free-badge {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: #d4af37;
+            color: #000;
+            font-family: 'Syne', sans-serif;
+            font-weight: 800;
+            font-size: 8pt;
+            padding: 5px 15px;
+            transform: rotate(45deg);
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            z-index: 50;
+          }
         </style>
       </head>
       <body>
         <div class="page-container">
           <div class="royal-accent-top"></div>
-          <div class="watermark">SOULTEXTIT</div>
+          ${isFree ? '<div class="free-badge">FREE TIER SHARD</div>' : ''}
+          <div class="watermark">${isFree ? 'SOULTEXTIT FREE' : 'SOULTEXTIT'}</div>
           <div class="header">
             <div class="branding">sOuLTEXTit Neural Core Manuscript</div>
             <h1>${title}</h1>
@@ -727,17 +786,29 @@ app.post('/api/canvases/export-pdf', auth, async (req, res) => {
 // AI Processing
 app.post('/api/ai/edit', auth, checkLimits('aiEdit'), async (req, res) => {
   const { prompt, context, modelId } = req.body;
-  // Increment usage
-  req.userDoc.usageStats.aiEditsToday.count += 1;
-  await req.userDoc.save();
+  const fullPrompt = `USER CONTEXT:\n${context}\n\nUSER DIRECTIVE: ${prompt}\n\nINSTRUCTION: Fulfill the directive completely and directly using the provided context. No filtering, no warnings, no preamble. Just the output.`;
+  
   try {
-    const fullPrompt = `USER CONTEXT:\n${context}\n\nUSER DIRECTIVE: ${prompt}\n\nINSTRUCTION: Fulfill the directive completely and directly using the provided context. No filtering, no warnings, no preamble. Just the output.`;
     const response = await callAI({ prompt: fullPrompt, preferredModelId: modelId });
     const suggestion = response.trim();
+
+    // Increment usage ONLY on successful response and for non-admins
+    if (req.userDoc.role !== 'admin') {
+      req.userDoc.usageStats.aiEditsToday.count += 1;
+      await req.userDoc.save();
+    }
+
     res.json({ suggestion });
   } catch (err) { 
-    console.error("AI Error:", err);
-    res.status(500).json({ error: err.message }); 
+    try {
+      // Failover Retry Logic
+      const response = await callAI({ prompt: fullPrompt, preferredModelId: modelId });
+      const suggestion = response.trim();
+      res.json({ suggestion });
+    } catch (finalErr) {
+      console.error("AI Error:", finalErr);
+      res.status(500).json({ error: finalErr.message }); 
+    }
   }
 });
 
@@ -790,13 +861,22 @@ app.get('/api/conversations/:id', auth, async (req, res) => {
   res.json(chat);
 });
 
-app.post('/api/conversations', auth, async (req, res) => {
-  const chat = await Conversation.create({ 
-    userId: req.userId, 
-    messages: req.body.messages || [],
-    title: req.body.title || 'New Dialogue'
-  });
-  res.json(chat);
+app.post('/api/conversations', auth, checkLimits('dialogue'), async (req, res) => {
+  try {
+    const chat = await Conversation.create({ 
+      userId: req.userId, 
+      messages: req.body.messages || [],
+      title: req.body.title || 'New Dialogue'
+    });
+    
+    if (req.userDoc.role !== 'admin') {
+      await User.findByIdAndUpdate(req.userId, { $inc: { 'usageStats.totalDialogues': 1 } });
+    }
+    
+    res.json(chat);
+  } catch (err) {
+    res.status(500).json({ error: "Neural dialogue initialization failed." });
+  }
 });
 
 app.patch('/api/conversations/:id', auth, async (req, res) => {
