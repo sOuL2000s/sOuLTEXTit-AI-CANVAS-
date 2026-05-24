@@ -184,6 +184,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 const Editor = () => {
   const [prompt, setPrompt] = useState('');
   const [suggestion, setSuggestion] = useState(null);
+  const [user, setUser] = useState(null);
   const [showMdGuide, setShowMdGuide] = useState(false);
   const [selectionRange, setSelectionRange] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -266,6 +267,13 @@ const Editor = () => {
   });
 
   useEffect(() => {
+    const fetchUserData = async () => {
+      try {
+        const res = await axiosAuth.get('/api/user/me');
+        setUser(res.data);
+      } catch (e) { console.error("Identity shard unreachable"); }
+    };
+
     const fetchModels = async () => {
       try {
         const res = await axiosAuth.get('/api/models');
@@ -281,6 +289,7 @@ const Editor = () => {
       } catch (e) { console.error("Neural metadata unavailable"); }
     };
 
+    fetchUserData();
     fetchModels();
     fetchCanvases();
 
@@ -454,6 +463,15 @@ const Editor = () => {
 
   const handleAiAction = async () => {
     if (!prompt) return;
+
+    // Local check for UI reactivity
+    const isLimitReached = user?.role !== 'admin' && 
+                           user?.usageStats?.aiEditsToday?.count >= user?.limits?.aiEdits;
+
+    if (isLimitReached) {
+      alert("Daily AI limit hit. Refreshing in " + (user.resetsInMs ? Math.floor(user.resetsInMs / 3600000) + "h" : "a few cycles") + ".");
+      return;
+    }
     
     // Fallback logic if user hasn't selected a model but models exist
     let modelToUse = selectedModel;
@@ -912,11 +930,19 @@ const Editor = () => {
             />
             <button 
               onClick={handleAiAction} 
-              disabled={loading} 
+              disabled={loading || (user?.role !== 'admin' && user?.usageStats?.aiEditsToday?.count >= user?.limits?.aiEdits)} 
               className="absolute right-1 top-1 bottom-1 px-3 md:px-5 rounded-lg bg-white text-black font-black text-[9px] md:text-[10px] uppercase tracking-tighter hover:bg-violet-500 hover:text-white transition-all disabled:opacity-50 flex items-center gap-2"
             >
-              {loading ? <div className="w-3 h-3 border-2 border-current border-t-transparent animate-spin rounded-full"/> : <Wand2 size={12} />}
-              <span className="hidden xs:inline">Transform</span>
+              {loading ? (
+                <div className="w-3 h-3 border-2 border-current border-t-transparent animate-spin rounded-full"/>
+              ) : (user?.role !== 'admin' && user?.usageStats?.aiEditsToday?.count >= user?.limits?.aiEdits) ? (
+                "Limit Hit"
+              ) : (
+                <>
+                  <Wand2 size={12} />
+                  <span className="hidden xs:inline">Transform</span>
+                </>
+              )}
             </button>
           </div>
           <button 

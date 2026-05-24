@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { NavLink } from 'react-router-dom';
 import axios from 'axios';
 import { motion } from 'framer-motion';
 import { User, Cpu, Database, Check, Loader2, Shield } from 'lucide-react';
@@ -55,18 +56,28 @@ const Profile = ({ setUser }) => {
   };
 
   const UsageMeter = ({ label, current, max, color }) => {
+    const isOverLimit = max !== Infinity && current > max;
     const percent = max === Infinity ? 0 : Math.min(100, (current / max) * 100);
+    
     return (
       <div className="space-y-2">
         <div className="flex justify-between items-end">
-          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{label}</span>
-          <span className="text-xs font-bold text-white">{current} / {max === Infinity ? '∞' : max}</span>
+          <span className={`text-[10px] font-black uppercase tracking-widest ${isOverLimit ? 'text-rose-500' : 'text-gray-400'}`}>
+            {label} {isOverLimit && ' (Limit Exceeded)'}
+          </span>
+          <span className={`text-xs font-bold ${isOverLimit ? 'text-rose-400' : 'text-white'}`}>
+            {current} / {max === Infinity ? '∞' : max}
+          </span>
         </div>
         <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
           <motion.div 
             initial={{ width: 0 }}
-            animate={{ width: `${max === Infinity ? 100 : percent}%` }}
-            className={`h-full bg-${color}-500 shadow-[0_0_10px_rgba(var(--${color}-rgb),0.5)]`}
+            animate={{ 
+              width: `${max === Infinity ? 100 : percent}%`,
+              backgroundColor: isOverLimit ? '#f43f5e' : undefined 
+            }}
+            className={`h-full ${!isOverLimit ? `bg-${color}-500` : ''} transition-colors duration-500`}
+            style={{ boxShadow: isOverLimit ? '0 0 10px rgba(244, 63, 94, 0.4)' : undefined }}
           />
         </div>
       </div>
@@ -76,6 +87,13 @@ const Profile = ({ setUser }) => {
   const daysLeft = getDaysLeft(profile?.subscription?.expiry);
   const currentPlan = profile?.subscription?.plan || 'free';
   const limits = PLAN_LIMITS[currentPlan];
+
+  const formatResetTime = (ms) => {
+    if (!ms) return '...';
+    const hours = Math.floor(ms / (1000 * 60 * 60));
+    const mins = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${mins}m`;
+  };
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-10 space-y-10">
@@ -144,8 +162,12 @@ const Profile = ({ setUser }) => {
           
           {profile?.role !== 'admin' && (
             <div className="pt-6 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-4">
-              <p className="text-xs text-gray-500 font-medium">Resetting in <span className="text-white">Next Cycle</span> (Midnight UTC)</p>
-              <a href="/pricing" className="text-[10px] font-black uppercase tracking-widest text-violet-400 hover:text-white transition-colors">Expand Shard Capacity →</a>
+              <p className="text-xs text-gray-500 font-medium">
+                AI Quota refreshes in: <span className="text-violet-400 font-bold">{formatResetTime(profile.resetsInMs)}</span>
+              </p>
+              <NavLink to="/pricing" className="text-[10px] font-black uppercase tracking-widest text-violet-400 hover:text-white">
+                Expand Shard Capacity →
+              </NavLink>
             </div>
           )}
         </div>

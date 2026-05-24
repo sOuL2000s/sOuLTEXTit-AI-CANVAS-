@@ -49,13 +49,20 @@ const PLAN_LIMITS = {
 };
 
 /**
- * ENTITLEMENT MIDDLEWARE
+ * ENTITLEMENT MIDDLEWARE (THE GUARD)
  */
 const checkLimits = (type) => async (req, res, next) => {
   const user = await User.findById(req.userId);
-  if (!user) return res.status(404).json({ error: "User not found" });
+  if (!user) return res.status(404).json({ error: "Entity not found" });
 
-  // Nexus Overlord (Admin) Exception: Unlimited Shard Access
+  // 1. EXPIRY GUARD: If plan expired, revert to free
+  if (user.subscription.plan !== 'free' && new Date() > user.subscription.expiry) {
+    user.subscription.plan = 'free';
+    user.subscription.status = 'expired';
+    await user.save();
+  }
+
+  // 2. Nexus Overlord (Admin) Exception: Unlimited Shard Access
   if (user.role === 'admin') {
     req.userDoc = user;
     return next();
@@ -64,38 +71,48 @@ const checkLimits = (type) => async (req, res, next) => {
   const plan = user.subscription.plan;
   const limits = PLAN_LIMITS[plan];
 
-  if (type === 'aiEdit') {
-    const today = new Date().toDateString();
-    if (user.usageStats.aiEditsToday.date !== today) {
-      user.usageStats.aiEditsToday = { count: 0, date: today };
-    }
-    if (user.usageStats.aiEditsToday.count >= limits.aiEdits) {
-      return res.status(403).json({ error: `Daily AI transmutations exhausted for ${plan.toUpperCase()} tier.` });
-    }
+  // --- QUOTA RESET LOGIC ---
+  const now = new Date();
+  const todayStr = now.toDateString();
+
+  // Reset Daily AI Edits if day changed
+  if (user.usageStats.aiEditsToday.date !== todayStr) {
+    user.usageStats.aiEditsToday = { count: 0, date: todayStr };
+    await user.save();
+  }
+
+  // Reset Monthly STT if month changed
+  const currentMonth = now.getMonth();
+  if (user.usageStats.sttMinutesThisMonth.month !== currentMonth) {
+    user.usageStats.sttMinutesThisMonth = { count: 0, month: currentMonth };
+    await user.save();
+  }
+
+  // --- ENFORCEMENT LOGIC ---
+  if (type === 'aiEdit' && user.usageStats.aiEditsToday.count >= limits.aiEdits) {
+    return res.status(403).json({ 
+      error: "LIMIT_REACHED", 
+      message: `Daily AI limit hit for ${plan.toUpperCase()} tier. Reset at midnight UTC.`,
+      resetType: 'daily'
+    });
   }
 
   if (type === 'canvas') {
     const count = await Canvas.countDocuments({ userId: req.userId });
     if (count >= limits.canvases) {
-      return res.status(403).json({ error: `Manuscript archive limit reached for ${plan.toUpperCase()} tier.` });
+      return res.status(403).json({ error: "LIMIT_REACHED", message: `Manuscript archive limit reached for ${plan.toUpperCase()} tier.` });
     }
   }
 
   if (type === 'dialogue') {
     const count = await Conversation.countDocuments({ userId: req.userId });
     if (count >= limits.dialogues) {
-      return res.status(403).json({ error: `Dialogue timeline limit reached for ${plan.toUpperCase()} tier.` });
+      return res.status(403).json({ error: "LIMIT_REACHED", message: `Dialogue timeline limit reached for ${plan.toUpperCase()} tier.` });
     }
   }
 
-  if (type === 'stt') {
-    const currentMonth = new Date().getMonth();
-    if (user.usageStats.sttMinutesThisMonth.month !== currentMonth) {
-      user.usageStats.sttMinutesThisMonth = { count: 0, month: currentMonth };
-    }
-    if (user.usageStats.sttMinutesThisMonth.count >= limits.sttMinutes) {
-      return res.status(403).json({ error: `Monthly Voice Typing frequency reached for ${plan.toUpperCase()} tier.` });
-    }
+  if (type === 'stt' && user.usageStats.sttMinutesThisMonth.count >= limits.sttMinutes) {
+    return res.status(403).json({ error: "LIMIT_REACHED", message: `Monthly Voice Typing frequency reached for ${plan.toUpperCase()} tier.` });
   }
 
   req.userDoc = user; 
@@ -192,8 +209,29 @@ app.get('/api/models', auth, async (req, res) => {
 
 // User Preference Routes
 app.get('/api/user/me', auth, async (req, res) => {
-  const user = await User.findById(req.userId).select('-password');
-  res.json(user);
+  const user = await User.findById(req.userId).select('-password').lean();
+  if (!user) return res.status(404).json({ error: "User not found" });
+
+  // Dynamically calculate document counts to ensure UI accuracy against limits
+  const actualCanvasCount = await Canvas.countDocuments({ userId: req.userId });
+  const actualDialogueCount = await Conversation.countDocuments({ userId: req.userId });
+
+  // Calculate Time to Midnight UTC
+  const now = new Date();
+  const midnight = new Date(now);
+  midnight.setUTCHours(24, 0, 0, 0);
+  const msUntilReset = midnight - now;
+
+  res.json({
+    ...user,
+    usageStats: {
+      ...user.usageStats,
+      totalCanvases: actualCanvasCount,
+      totalDialogues: actualDialogueCount
+    },
+    limits: PLAN_LIMITS[user.subscription.plan || 'free'],
+    resetsInMs: msUntilReset
+  });
 });
 
 app.patch('/api/user/preferences', auth, async (req, res) => {
@@ -322,10 +360,35 @@ io.on('connection', (socket) => {
       return;
     }
     try {
+      const userId = socket.handshake.query.userId;
+      if (!userId) throw new Error("Identity context missing for STT pipeline.");
+
+      const user = await User.findById(userId);
+      if (!user) throw new Error("Entity not found in Nexus.");
+
+      // 1. Pre-Execution Limit Check
+      if (user.role !== 'admin') {
+        const plan = user.subscription.plan;
+        const limits = PLAN_LIMITS[plan];
+        
+        // Lazy Monthly Reset
+        const currentMonth = new Date().getMonth();
+        if (user.usageStats.sttMinutesThisMonth.month !== currentMonth) {
+          user.usageStats.sttMinutesThisMonth = { count: 0, month: currentMonth };
+          await user.save();
+        }
+
+        if (user.usageStats.sttMinutesThisMonth.count >= limits.sttMinutes) {
+          socket.emit('stt-error', { message: "LIMIT_REACHED", detail: "Monthly Voice Limit Reached. Upgrade for more shards." });
+          audioChunks = [];
+          return;
+        }
+      }
+
       const buffer = Buffer.concat(audioChunks);
       audioChunks = []; 
 
-      // 1. Resolve Model and its Provider from Cache
+      // 2. Resolve Model and its Provider from Cache
       const cachedModels = await getCachedModels();
       const modelConfig = cachedModels.find(m => m.modelId === modelId && m.category === 'stt');
       
@@ -337,7 +400,7 @@ io.on('connection', (socket) => {
 
       if (!apiKeys.length) throw new Error(`No active API keys found for provider: ${provider}`);
 
-      // 2. Attempt transcription with failover
+      // 3. Attempt transcription with failover
       let transcript = "";
       for (const keyDoc of apiKeys) {
         try {
@@ -352,16 +415,12 @@ io.on('connection', (socket) => {
             'usageStats.lastUsed': new Date()
           });
 
-          // Accurate usage tracking for Voice Shards
-          const userId = socket.handshake.query.userId;
-          if (userId) {
-             const user = await User.findById(userId);
-             if (user && user.role !== 'admin') {
-                // Approximate minutes based on buffer size (~1.5MB per minute for high-quality audio)
-                const estimatedMinutes = Math.max(0.1, buffer.length / (1024 * 1024 * 1.5));
-                user.usageStats.sttMinutesThisMonth.count += estimatedMinutes;
-                await user.save();
-             }
+          // 4. Accurate Atomic Usage tracking for Voice Shards
+          if (user.role !== 'admin') {
+            const estimatedMinutes = Math.max(0.1, buffer.length / (1024 * 1024 * 1.5));
+            await User.findByIdAndUpdate(userId, { 
+              $inc: { 'usageStats.sttMinutesThisMonth.count': estimatedMinutes } 
+            });
           }
 
           break; 
@@ -516,9 +575,7 @@ app.post('/api/canvases', auth, checkLimits('canvas'), async (req, res) => {
       { upsert: true, returnDocument: 'after' }
     );
 
-    if (isNew && req.userDoc.role !== 'admin') {
-      await User.findByIdAndUpdate(req.userId, { $inc: { 'usageStats.totalCanvases': 1 } });
-    }
+    // Usage stats for total documents are now dynamically calculated per request in /api/user/me
 
     res.json(canvas);
   } catch (err) {
@@ -790,10 +847,11 @@ app.post('/api/ai/edit', auth, checkLimits('aiEdit'), async (req, res) => {
     const response = await callAI({ prompt: fullPrompt, preferredModelId: modelId });
     const suggestion = response.trim();
 
-    // Increment usage ONLY on successful response and for non-admins
+    // Atomic increment usage ONLY on successful response and for non-admins
     if (req.userDoc.role !== 'admin') {
-      req.userDoc.usageStats.aiEditsToday.count += 1;
-      await req.userDoc.save();
+      await User.findByIdAndUpdate(req.userId, { 
+        $inc: { 'usageStats.aiEditsToday.count': 1 } 
+      });
     }
 
     res.json({ suggestion });
@@ -802,6 +860,13 @@ app.post('/api/ai/edit', auth, checkLimits('aiEdit'), async (req, res) => {
       // Failover Retry Logic
       const response = await callAI({ prompt: fullPrompt, preferredModelId: modelId });
       const suggestion = response.trim();
+
+      if (req.userDoc.role !== 'admin') {
+        await User.findByIdAndUpdate(req.userId, { 
+          $inc: { 'usageStats.aiEditsToday.count': 1 } 
+        });
+      }
+
       res.json({ suggestion });
     } catch (finalErr) {
       console.error("AI Error:", finalErr);
@@ -856,9 +921,7 @@ app.post('/api/conversations', auth, checkLimits('dialogue'), async (req, res) =
       title: req.body.title || 'New Dialogue'
     });
     
-    if (req.userDoc.role !== 'admin') {
-      await User.findByIdAndUpdate(req.userId, { $inc: { 'usageStats.totalDialogues': 1 } });
-    }
+    // Usage stats for total documents are now dynamically calculated per request in /api/user/me
     
     res.json(chat);
   } catch (err) {
@@ -935,12 +998,14 @@ app.post('/api/payments/verify', auth, async (req, res) => {
   const generated_signature = hmac.digest('hex');
 
   if (generated_signature === razorpay_signature) {
-    await User.findByIdAndUpdate(req.userId, {
+    const updatedUser = await User.findByIdAndUpdate(req.userId, {
       'subscription.plan': plan,
+      'subscription.status': 'active',
       'subscription.razorpay_payment_id': razorpay_payment_id,
       'subscription.expiry': new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-    });
-    res.json({ success: true });
+    }, { new: true }).select('-password');
+    
+    res.json({ success: true, user: updatedUser });
   } else {
     res.status(400).json({ success: false });
   }
