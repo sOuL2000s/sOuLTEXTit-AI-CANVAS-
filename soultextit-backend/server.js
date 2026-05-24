@@ -35,6 +35,7 @@ const io = new Server(httpServer, {
 });
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const { HarmBlockThreshold, HarmCategory } = require("@google/generative-ai");
 const Razorpay = require('razorpay');
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -286,34 +287,75 @@ app.post('/api/auth/google', async (req, res) => {
 });
 
 /**
+ * TOOL DEFINITIONS
+ */
+const webSearchTool = {
+  functionDeclarations: [{
+    name: "web_search",
+    description: "Search the web for up-to-date information, facts, news, or any query that requires external knowledge.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "The search query, e.g., 'current stock price of NVDA', 'latest news on AI'."
+        }
+      },
+      required: ["query"]
+    }
+  }]
+};
+
+/**
+ * WEB SEARCH UTILITY (Serper API)
+ */
+const performWebSearch = async (query) => {
+  try {
+    const cachedKeys = await getCachedKeys();
+    const serperKeys = cachedKeys.filter(k => k.provider === 'serper' && k.type === 'web_search' && k.isActive);
+
+    if (serperKeys.length === 0) return "Web search service is currently unavailable (No API keys found).";
+
+    const apiKey = serperKeys[0].key;
+    const response = await axios.post('https://google.serper.dev/search', {
+      q: query
+    }, {
+      headers: { 
+        'X-API-KEY': apiKey,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const organic = response.data.organic || [];
+    const answerBox = response.data.answerBox;
+    
+    // Intelligent Scraping: Format into a highly condensed summary for LLM context
+    let context = "";
+    if (answerBox?.answer) context += `DIRECT ANSWER: ${answerBox.answer}\n`;
+    if (answerBox?.snippet) context += `SNIPPET: ${answerBox.snippet}\n`;
+    
+    organic.slice(0, 4).forEach((res, i) => {
+      context += `[${i+1}] ${res.title}: ${res.snippet} (Source: ${res.link})\n`;
+    });
+
+    return context || "No relevant search results found.";
+  } catch (err) {
+    console.error("Serper API Fail:", err.message);
+    return "Search failed due to network error.";
+  }
+};
+
+const executeToolCall = async (toolCall) => {
+  if (toolCall.name === "web_search") {
+    return await performWebSearch(toolCall.args?.query || toolCall.arguments?.query);
+  }
+  return "Error: Unknown tool.";
+};
+
+/**
  * PROVIDER ABSTRACTION LAYER
  */
 const Providers = {
-  gemini: async (apiKey, modelId, prompt) => {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: modelId });
-    const result = await model.generateContent(prompt);
-    return result.response.text();
-  },
-  groq: async (apiKey, modelId, prompt) => {
-    const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-      model: modelId,
-      messages: [
-        { role: "user", content: prompt }
-      ]
-    }, { headers: { Authorization: `Bearer ${apiKey}` } });
-    return response.data.choices[0].message.content;
-  },
-  openai: async (apiKey, modelId, prompt) => {
-    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-      model: modelId,
-      messages: [
-        { role: "user", content: prompt }
-      ]
-    }, { headers: { Authorization: `Bearer ${apiKey}` } });
-    return response.data.choices[0].message.content;
-  },
-  
   stt: {
     whisper: async (apiKey, audioBuffer, provider = 'openai') => {
       const FormData = require('form-data');
@@ -450,8 +492,7 @@ io.on('connection', (socket) => {
   });
 });
 
-const callAI = async ({ prompt, category = 'text', preferredModelId = null }) => {
-  // 1. Resolve Model from Cache
+const callAI = async ({ prompt, category = 'text', preferredModelId = null, webSearchEnabled = false, history = [] }) => {
   const cachedModels = await getCachedModels();
   let modelConfig;
 
@@ -464,7 +505,6 @@ const callAI = async ({ prompt, category = 'text', preferredModelId = null }) =>
 
   if (!modelConfig) throw new Error(`No active models configured for ${category}`);
 
-  // 2. Fetch Keys from Cache
   const cachedKeys = await getCachedKeys();
   const apiKeys = cachedKeys
     .filter(k => k.provider === modelConfig.provider)
@@ -472,32 +512,93 @@ const callAI = async ({ prompt, category = 'text', preferredModelId = null }) =>
 
   if (apiKeys.length === 0) throw new Error(`No active API keys for provider: ${modelConfig.provider}`);
 
-  // 3. Execution with Failover across keys
   for (const keyDoc of apiKeys) {
     try {
-      const output = await Providers[modelConfig.provider](keyDoc.key, modelConfig.modelId, prompt);
-      
-      // Update Stats
+      let finalResponse = "";
+
+      if (modelConfig.provider === 'gemini') {
+        const genAI = new GoogleGenerativeAI(keyDoc.key);
+        const model = genAI.getGenerativeModel({ 
+          model: modelConfig.modelId,
+          tools: webSearchEnabled ? [webSearchTool] : []
+        });
+
+        const chat = model.startChat({
+          history: history.map(h => ({
+            role: h.role === 'user' ? 'user' : 'model',
+            parts: [{ text: h.content }]
+          }))
+        });
+
+        let result = await chat.sendMessage(prompt);
+        let response = result.response;
+
+        // Handle Function Calling for Gemini
+        const call = response.functionCalls()?.[0];
+        if (call) {
+          const toolResult = await executeToolCall(call);
+          const secondResult = await chat.sendMessage([{
+            functionResponse: { name: call.name, response: { content: toolResult } }
+          }]);
+          finalResponse = secondResult.response.text();
+        } else {
+          finalResponse = response.text();
+        }
+
+      } else if (modelConfig.provider === 'groq' || modelConfig.provider === 'openai') {
+        const baseURL = modelConfig.provider === 'groq' ? 'https://api.groq.com/openai/v1' : 'https://api.openai.com/v1';
+        const messages = [
+          ...history.map(h => ({ role: h.role, content: h.content })),
+          { role: "user", content: prompt }
+        ];
+
+        const payload = {
+          model: modelConfig.modelId,
+          messages,
+          tools: webSearchEnabled ? webSearchTool.functionDeclarations.map(f => ({ type: "function", function: f })) : undefined,
+          tool_choice: webSearchEnabled ? "auto" : undefined
+        };
+
+        const res = await axios.post(`${baseURL}/chat/completions`, payload, {
+          headers: { Authorization: `Bearer ${keyDoc.key}` }
+        });
+
+        const message = res.data.choices[0].message;
+
+        if (message.tool_calls) {
+          const toolCall = message.tool_calls[0].function;
+          const toolResult = await executeToolCall({ name: toolCall.name, args: JSON.parse(toolCall.arguments) });
+          
+          const secondRes = await axios.post(`${baseURL}/chat/completions`, {
+            model: modelConfig.modelId,
+            messages: [
+              ...messages,
+              message,
+              { role: "tool", tool_call_id: message.tool_calls[0].id, content: toolResult }
+            ]
+          }, { headers: { Authorization: `Bearer ${keyDoc.key}` } });
+          
+          finalResponse = secondRes.data.choices[0].message.content;
+        } else {
+          finalResponse = message.content;
+        }
+      }
+
       await ApiKey.findByIdAndUpdate(keyDoc._id, { 
         $inc: { 'usageStats.totalRequests': 1 },
         'usageStats.lastUsed': new Date()
       });
 
-      return output;
+      return finalResponse;
+
     } catch (err) {
-      console.error(`Provider Error [${modelConfig.provider}]:`, err.message);
-      
-      const updateData = { $inc: { 'usageStats.errorCount': 1 } };
-      
-      // If rate limited, we could optionally flag the key as inactive for a short duration
-      // or simply log the failure to the stats.
-      await ApiKey.findByIdAndUpdate(keyDoc._id, updateData);
-      
-      continue; // Try next key in the balanced list
+      console.error(`AI Core Fail [${modelConfig.provider}]:`, err.message);
+      await ApiKey.findByIdAndUpdate(keyDoc._id, { $inc: { 'usageStats.errorCount': 1 } });
+      continue;
     }
   }
 
-  throw new Error(`Exhausted all nodes for ${modelConfig.provider}. Support requested.`);
+  throw new Error(`Exhausted all nodes for ${modelConfig.provider}.`);
 };
 
 // Advanced Document Import (Universal Extraction)
@@ -848,11 +949,15 @@ app.post('/api/canvases/export-pdf', auth, async (req, res) => {
 
 // AI Processing
 app.post('/api/ai/edit', auth, checkLimits('aiEdit'), async (req, res) => {
-  const { prompt, context, modelId } = req.body;
+  const { prompt, context, modelId, webSearchEnabled } = req.body;
   const fullPrompt = `CONTEXT:\n${context}\n\nREQUEST: ${prompt}`;
   
   try {
-    const response = await callAI({ prompt: fullPrompt, preferredModelId: modelId });
+    const response = await callAI({ 
+      prompt: fullPrompt, 
+      preferredModelId: modelId, 
+      webSearchEnabled: webSearchEnabled 
+    });
     const suggestion = response.trim();
 
     // Atomic increment usage ONLY on successful response and for non-admins
@@ -884,22 +989,30 @@ app.post('/api/ai/edit', auth, checkLimits('aiEdit'), async (req, res) => {
 });
 
 app.post('/api/ai/chat', auth, async (req, res) => {
-  const { messages, modelId } = req.body;
+  const { messages, modelId, webSearchEnabled } = req.body;
   try {
-    const fullPrompt = messages.map(m => {
+    const history = messages.slice(0, -1).map(m => {
       let content = m.content;
-      let contextPrefix = "";
-      
-      if (m.attachments && m.attachments.length > 0) {
+      if (m.attachments?.length > 0) {
         const attachmentText = m.attachments.map(a => `FILE: ${a.name}\nCONTENT:\n${a.content}`).join('\n\n');
-        contextPrefix = `ATTACHMENTS:\n${attachmentText}\n\n`;
+        content = `ATTACHMENTS:\n${attachmentText}\n\n${content}`;
       }
-      
-      const roleLabel = m.role === 'user' ? 'USER' : 'ASSISTANT';
-      return `${roleLabel}: ${contextPrefix}${content}`;
-    }).join('\n\n') + "\n\nASSISTANT:";
+      return { role: m.role, content };
+    });
+
+    const lastMsg = messages[messages.length - 1];
+    let currentPrompt = lastMsg.content;
+    if (lastMsg.attachments?.length > 0) {
+      const attachmentText = lastMsg.attachments.map(a => `FILE: ${a.name}\nCONTENT:\n${a.content}`).join('\n\n');
+      currentPrompt = `ATTACHMENTS:\n${attachmentText}\n\n${currentPrompt}`;
+    }
     
-    let response = await callAI({ prompt: fullPrompt, preferredModelId: modelId });
+    let response = await callAI({ 
+      prompt: currentPrompt, 
+      preferredModelId: modelId, 
+      history, 
+      webSearchEnabled 
+    });
     
     // Sanitize response to remove accidental prefixes
     response = response.replace(/^(assistant|ASSISTANT|Assistant):\s*/i, '').trim();

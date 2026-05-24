@@ -28,7 +28,8 @@ const UserSchema = new mongoose.Schema({
   },
   preferences: {
     textModelId: String,
-    sttModelId: String
+    sttModelId: String,
+    webSearchEnabled: { type: Boolean, default: false }
   }
 }, { minimize: false }); // Ensures empty sub-objects are persisted in DB
 
@@ -44,10 +45,10 @@ const ConversationSchema = new mongoose.Schema({
 });
 
 const ApiKeySchema = new mongoose.Schema({
-  provider: { type: String, enum: ['gemini', 'groq', 'openai', 'anthropic'], required: true },
+  provider: { type: String, enum: ['gemini', 'groq', 'openai', 'anthropic', 'serper'], required: true },
   key: { type: String, required: true },
   label: { type: String, default: 'Primary Key' },
-  type: { type: String, enum: ['text', 'image', 'stt', 'general'], default: 'general' },
+  type: { type: String, enum: ['text', 'image', 'stt', 'general', 'web_search'], default: 'general' },
   isActive: { type: Boolean, default: true },
   priority: { type: Number, default: 0 }, // Higher is tried first
   usageStats: {

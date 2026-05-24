@@ -5,7 +5,7 @@ import {
   Send, Mic, MicOff, Paperclip, Trash2, Plus, 
   History, Copy, Volume2, VolumeX, Download, 
   User, Sparkles, Loader2, X, FileText, Check,
-  RotateCcw, Square, Pencil
+  RotateCcw, Square, Pencil, Globe
 } from 'lucide-react';
 import { io } from 'socket.io-client';
 import ReactMarkdown from 'react-markdown';
@@ -29,6 +29,7 @@ const Conversations = () => {
   const [deleteConfirmIndex, setDeleteConfirmIndex] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [userPrefs, setUserPrefs] = useState(null);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [models, setModels] = useState([]);
   const [editingIndex, setEditingIndex] = useState(null);
   const [editText, setEditText] = useState('');
@@ -196,7 +197,7 @@ const Conversations = () => {
       const modelId = userPrefs?.textModelId || models.find(m => m.category === 'text' && m.isDefault)?.modelId || models.find(m => m.category === 'text')?.modelId;
       
       const res = await axiosAuth.post('/api/ai/chat', 
-        { messages: newMessages, modelId },
+        { messages: newMessages, modelId, webSearchEnabled },
         { signal: abortControllerRef.current.signal }
       );
 
@@ -413,7 +414,7 @@ const Conversations = () => {
     try {
       const modelId = userPrefs?.textModelId || models.find(m => m.category === 'text' && m.isDefault)?.modelId || models.find(m => m.category === 'text')?.modelId;
       const res = await axiosAuth.post('/api/ai/chat', 
-        { messages: newMessages, modelId },
+        { messages: newMessages, modelId, webSearchEnabled },
         { signal: abortControllerRef.current.signal }
       );
       const assistantMessage = { role: 'assistant', content: res.data.response, timestamp: new Date() };
@@ -777,6 +778,17 @@ const Conversations = () => {
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())} 
               />
               <div className="flex gap-2 p-1">
+                <button 
+                  onClick={() => setWebSearchEnabled(!webSearchEnabled)} 
+                  className={`p-3 rounded-xl transition-all ${
+                    webSearchEnabled 
+                      ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/20' 
+                      : 'bg-white/5 text-gray-500'
+                  }`}
+                  title="Toggle Web Search"
+                >
+                  <Globe size={20} />
+                </button>
                 <button onClick={toggleRecording} className={`p-3 rounded-xl ${isRecording ? 'bg-rose-500 text-white animate-pulse' : 'bg-white/5 text-rose-400'}`}>{isProcessingStt ? <Loader2 size={20} className="animate-spin" /> : isRecording ? <MicOff size={20}/> : <Mic size={20} />}</button>
                 <button 
                   onClick={handleSend} 

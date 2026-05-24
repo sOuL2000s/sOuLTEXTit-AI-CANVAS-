@@ -336,6 +336,7 @@ const Admin = () => {
                     >
                       <option value="gemini" className="bg-slate-900">Google Cloud AI</option>
                       <option value="groq" className="bg-slate-900">Groq Neural</option>
+                      <option value="serper" className="bg-slate-900">Serper Web Search</option>
                     </select>
                   </div>
                   <div className="space-y-2">

@@ -177,7 +177,7 @@ const MathExtension = Node.create({
   }
 });
 import { io } from 'socket.io-client';
-import { Download, Mic, MicOff, Wand2, Check, X, Save, History, FileUp, Plus, Trash2, Loader2, Eye, Code, HelpCircle, Layers, Sparkles, Volume2, VolumeX, FileText, FileJson, Type, Bold, Italic, Strikethrough, Heading1, Heading2, Heading3, List, ListOrdered, Quote, SquareCode, Minus, Undo2, Redo2, Sigma, Copy, Eraser, Underline as UnderlineIcon, Subscript as SubscriptIcon, Superscript as SuperscriptIcon, Highlighter } from 'lucide-react';
+import { Download, Mic, MicOff, Wand2, Check, X, Save, History, FileUp, Plus, Trash2, Loader2, Eye, Code, HelpCircle, Layers, Sparkles, Volume2, VolumeX, FileText, FileJson, Type, Bold, Italic, Strikethrough, Heading1, Heading2, Heading3, List, ListOrdered, Quote, SquareCode, Minus, Undo2, Redo2, Sigma, Copy, Eraser, Underline as UnderlineIcon, Subscript as SubscriptIcon, Superscript as SuperscriptIcon, Highlighter, Globe } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -190,6 +190,7 @@ const Editor = () => {
   const [loading, setLoading] = useState(false);
   const [availableModels, setAvailableModels] = useState([]);
   const [sttModels, setSttModels] = useState([]);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [selectedModel, setSelectedModel] = useState('');
   const [selectedSttModel, setSelectedSttModel] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -502,7 +503,8 @@ const Editor = () => {
       const res = await axiosAuth.post('/api/ai/edit', { 
         prompt, 
         context: context, 
-        modelId: selectedModel 
+        modelId: selectedModel,
+        webSearchEnabled
       });
       
       setSuggestion(res.data.suggestion);
@@ -945,6 +947,17 @@ const Editor = () => {
               )}
             </button>
           </div>
+          <button 
+            onClick={() => setWebSearchEnabled(!webSearchEnabled)} 
+            className={`p-2.5 md:p-3 rounded-xl transition-all flex items-center justify-center ${
+              webSearchEnabled 
+                ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/20' 
+                : 'bg-white/5 text-gray-500 hover:text-white'
+            }`}
+            title="Toggle Web Search"
+          >
+            <Globe size={20} />
+          </button>
           <button 
             onClick={toggleSpeech} 
             disabled={isProcessingStt}
