@@ -24,6 +24,9 @@ const Conversations = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessingStt, setIsProcessingStt] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
+  const [dictatingIndex, setDictatingIndex] = useState(null);
+  const [copiedIndex, setCopiedIndex] = useState(null);
+  const [deleteConfirmIndex, setDeleteConfirmIndex] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [userPrefs, setUserPrefs] = useState(null);
   const [models, setModels] = useState([]);
@@ -347,18 +350,30 @@ const Conversations = () => {
     link.click();
   };
 
-  const dictateMessage = (text) => {
-    if (isDictating) window.speechSynthesis.cancel();
-    else {
+  const dictateMessage = (text, index) => {
+    if (isDictating && dictatingIndex === index) {
+      window.speechSynthesis.cancel();
+      setIsDictating(false);
+      setDictatingIndex(null);
+    } else {
+      window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.onstart = () => setIsDictating(true);
-      utterance.onend = () => setIsDictating(false);
+      utterance.onstart = () => {
+        setIsDictating(true);
+        setDictatingIndex(index);
+      };
+      utterance.onend = () => {
+        setIsDictating(false);
+        setDictatingIndex(null);
+      };
       window.speechSynthesis.speak(utterance);
     }
   };
 
-  const copyToClipboard = (text) => {
+  const copyToClipboard = (text, index) => {
     navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 2000);
   };
 
   const deleteMessage = async (index) => {
@@ -516,7 +531,7 @@ const Conversations = () => {
                 {m.role === 'user' ? <User size={18}/> : <Sparkles size={18}/>}
               </div>
               
-              <div className={`flex flex-col max-w-[85%] sm:max-w-[80%] lg:max-w-[70%] ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+              <div className={`flex flex-col min-w-0 max-w-[85%] sm:max-w-[80%] lg:max-w-[70%] ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
                 <div className={`w-full p-4 md:p-6 rounded-[1.5rem] shadow-xl ${m.role === 'user' ? 'bg-white/5 border border-white/10 rounded-tr-none' : 'bg-white/[0.03] border border-white/5 rounded-tl-none'} transition-all duration-300 overflow-hidden`}>
                   {m.attachments && m.attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 mb-4">
@@ -549,13 +564,23 @@ const Conversations = () => {
                             const match = /language-(\w+)/.exec(className || '');
                             const isBlock = !inline && match;
                             const codeText = String(children).replace(/\n$/, '');
+                            const [isCopied, setIsCopied] = useState(false);
 
                             if (isBlock) {
                               return (
                                 <div className="relative group/code my-4 rounded-xl overflow-hidden border border-white/10 text-left">
                                   <div className="flex justify-between items-center px-4 py-2 bg-white/5 border-b border-white/5">
                                     <span className="text-[10px] font-black uppercase text-gray-500 tracking-widest">{match ? match[1] : 'code'}</span>
-                                    <button onClick={() => copyToClipboard(codeText)} className="text-gray-500 hover:text-white transition-colors"><Copy size={12} /></button>
+                                    <button 
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(codeText);
+                                        setIsCopied(true);
+                                        setTimeout(() => setIsCopied(false), 2000);
+                                      }} 
+                                      className={`${isCopied ? 'text-emerald-400' : 'text-gray-500'} hover:text-white transition-colors`}
+                                    >
+                                      {isCopied ? <Check size={12} /> : <Copy size={12} />}
+                                    </button>
                                   </div>
                                   <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-white/10">
                                     <SyntaxHighlighter
@@ -586,14 +611,68 @@ const Conversations = () => {
                 </div>
 
                 <div className={`mt-3 flex items-center gap-4 px-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                  <button onClick={() => dictateMessage(m.content)} className="text-gray-600 hover:text-pink-400 transition-colors" title="Dictate"><Volume2 size={14}/></button>
-                  <button onClick={() => copyToClipboard(m.content)} className="text-gray-600 hover:text-white transition-colors" title="Copy Markdown"><Copy size={14}/></button>
+                  <button 
+                    onClick={() => dictateMessage(m.content, i)} 
+                    className={`${isDictating && dictatingIndex === i ? 'text-pink-500' : 'text-gray-600'} hover:text-pink-400 transition-colors`} 
+                    title={isDictating && dictatingIndex === i ? "Stop" : "Dictate"}
+                  >
+                    {isDictating && dictatingIndex === i ? <Square size={14} fill="currentColor" /> : <Volume2 size={14}/>}
+                  </button>
+                  
+                  <button 
+                    onClick={() => copyToClipboard(m.content, i)} 
+                    className={`${copiedIndex === i ? 'text-emerald-500' : 'text-gray-600'} hover:text-white transition-colors`} 
+                    title="Copy Markdown"
+                  >
+                    {copiedIndex === i ? <Check size={14} /> : <Copy size={14}/>}
+                  </button>
+                  
                   {m.role === 'user' && (
                     <button onClick={() => { setEditingIndex(i); setEditText(m.content); }} className="text-gray-600 hover:text-violet-400 transition-colors" title="Edit Message"><Pencil size={14}/></button>
                   )}
-                  <button onClick={() => deleteMessage(i)} className="text-gray-600 hover:text-rose-500 transition-colors" title="Prune Message"><Trash2 size={14}/></button>
+                  
+                  <div className="relative">
+                    <AnimatePresence>
+                      {deleteConfirmIndex === i && (
+                        <motion.div 
+                          initial={{ width: 0, opacity: 0 }}
+                          animate={{ width: 'auto', opacity: 1 }}
+                          exit={{ width: 0, opacity: 0 }}
+                          className="absolute right-full mr-2 bg-rose-500/10 border border-rose-500/20 rounded-lg flex overflow-hidden whitespace-nowrap z-10"
+                        >
+                          <button 
+                            onClick={() => { deleteMessage(i); setDeleteConfirmIndex(null); }}
+                            className="px-3 py-1 text-[9px] font-black uppercase text-rose-500 hover:bg-rose-500 hover:text-white transition-all"
+                          >
+                            Confirm
+                          </button>
+                          <button 
+                            onClick={() => setDeleteConfirmIndex(null)}
+                            className="px-3 py-1 text-[9px] font-black uppercase text-gray-500 hover:bg-white/5"
+                          >
+                            Cancel
+                          </button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                    <button 
+                      onClick={() => setDeleteConfirmIndex(deleteConfirmIndex === i ? null : i)} 
+                      className={`${deleteConfirmIndex === i ? 'text-rose-500' : 'text-gray-600'} hover:text-rose-500 transition-colors`} 
+                      title="Prune Message"
+                    >
+                      <Trash2 size={14}/>
+                    </button>
+                  </div>
+                  
                   {m.role === 'assistant' && i === messages.length - 1 && (
-                    <button onClick={regenerateLast} className="text-gray-600 hover:text-emerald-400 transition-colors" title="Regenerate Shard"><RotateCcw size={14}/></button>
+                    <button 
+                      onClick={regenerateLast} 
+                      disabled={loading}
+                      className={`${loading ? 'text-emerald-400' : 'text-gray-600'} hover:text-emerald-400 transition-colors`} 
+                      title="Regenerate Shard"
+                    >
+                      {loading ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14}/>}
+                    </button>
                   )}
                 </div>
               </div>
