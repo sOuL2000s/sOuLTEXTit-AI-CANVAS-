@@ -160,10 +160,10 @@ const Profile = ({ setUser }) => {
             />
           </div>
           
-          {profile?.role !== 'admin' && (
+          {profile?.role !== 'admin' && profile?.resetsInMs !== undefined && (
             <div className="pt-6 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-4">
               <p className="text-xs text-gray-500 font-medium">
-                AI Quota refreshes in: <span className="text-violet-400 font-bold">{formatResetTime(profile.resetsInMs)}</span>
+                AI Quota refreshes in: <span className="text-violet-400 font-bold">{formatResetTime(profile?.resetsInMs)}</span>
               </p>
               <NavLink to="/pricing" className="text-[10px] font-black uppercase tracking-widest text-violet-400 hover:text-white">
                 Expand Shard Capacity →

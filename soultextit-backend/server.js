@@ -225,11 +225,11 @@ app.get('/api/user/me', auth, async (req, res) => {
   res.json({
     ...user,
     usageStats: {
-      ...user.usageStats,
+      ...(user.usageStats || {}),
       totalCanvases: actualCanvasCount,
       totalDialogues: actualDialogueCount
     },
-    limits: PLAN_LIMITS[user.subscription.plan || 'free'],
+    limits: PLAN_LIMITS[user.subscription?.plan || 'free'],
     resetsInMs: msUntilReset
   });
 });

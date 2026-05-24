@@ -70,14 +70,20 @@ const Conversations = () => {
 
   const fetchData = async () => {
     try {
-      const [chatsRes, userRes, modelsRes] = await Promise.all([
+      // Use individual try-catches or separate awaits to prevent one failure (like /me) 
+      // from blocking the loading of other data (like chats).
+      const [chatsRes, userRes, modelsRes] = await Promise.allSettled([
         axiosAuth.get('/api/conversations'),
         axiosAuth.get('/api/user/me'),
         axiosAuth.get('/api/models')
       ]);
-      setChats(chatsRes.data);
-      setUserPrefs(userRes.data.preferences);
-      setModels(modelsRes.data);
+
+      if (chatsRes.status === 'fulfilled') setChats(chatsRes.value.data);
+      if (userRes.status === 'fulfilled') setUserPrefs(userRes.value.data.preferences);
+      if (modelsRes.status === 'fulfilled') setModels(modelsRes.value.data);
+      
+      if (chatsRes.status === 'rejected') console.error("Archive Access Failed");
+      if (userRes.status === 'rejected') console.error("Identity shard unreachable");
     } catch (e) { console.error("Nexus Sync Failed"); }
   };
 
