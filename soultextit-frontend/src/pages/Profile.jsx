@@ -112,7 +112,7 @@ const Profile = ({ setUser }) => {
           <div className="flex flex-col md:flex-row items-center gap-3 mb-2">
             <h1 className="text-3xl md:text-4xl font-display font-black text-white uppercase tracking-tighter">{profile?.name}</h1>
             <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${profile?.role === 'admin' ? 'bg-amber-500 text-black' : 'bg-violet-500 text-white'}`}>
-              {profile?.role === 'admin' ? 'Nexus Overlord' : `${currentPlan.toUpperCase()} Shard`}
+              {profile?.role === 'admin' ? 'Nexus Overlord' : `${currentPlan.toUpperCase()} ${profile?.subscription?.duration?.toUpperCase() || 'MONTHLY'} Shard`}
             </span>
           </div>
           <p className="text-gray-500 font-bold uppercase tracking-widest text-xs">{profile?.email}</p>

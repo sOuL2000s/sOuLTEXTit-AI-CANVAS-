@@ -7,45 +7,66 @@ const PLANS = [
   {
     id: 'free',
     title: "Neural Initiate",
-    price: 0,
-    subtitle: "Free Forever",
     icon: Globe,
     color: "blue",
-    features: ["10 AI Edits / Day", "5 Manuscripts", "5 Dialogue Timelines", "30m Voice Typing", "Watermarked Exports"]
+    features: ["10 AI Edits / Day", "5 Manuscripts", "5 Dialogue Timelines", "30m Voice Typing", "Watermarked Exports"],
+    durations: [
+      { id: 'monthly', label: 'Free Forever', monthlyPrice: 0, months: 1, discount: 0, recommended: false },
+    ]
   },
   {
     id: 'creative',
     title: "Creative Shard",
-    price: 2.99,
     subtitle: "For Creators",
     icon: Zap,
     color: "violet",
-    recommended: true,
-    features: ["100 AI Edits / Day", "50 Manuscripts", "25 Dialogue Timelines", "180m Voice Typing", "No Watermarks"]
+    features: ["100 AI Edits / Day", "50 Manuscripts", "25 Dialogue Timelines", "180m Voice Typing", "No Watermarks"],
+    durations: [
+      { id: 'monthly', label: 'Monthly', monthlyPrice: 2.99, months: 1, discount: 0, recommended: false },
+      { id: 'quarterly', label: 'Quarterly', monthlyPrice: 2.99, months: 3, discount: 10, recommended: false },
+      { id: 'biannual', label: '6-Monthly', monthlyPrice: 2.99, months: 6, discount: 15, recommended: false },
+      { id: 'annual', label: 'Yearly', monthlyPrice: 2.99, months: 12, discount: 20, recommended: true }
+    ]
   },
   {
     id: 'quantum',
     title: "Quantum Nexus",
-    price: 5.99,
     subtitle: "Pro Performance",
     icon: Sparkles,
     color: "pink",
-    features: ["500 AI Edits / Day", "Unlimited Manuscripts", "100 Dialogue Timelines", "600m Voice Typing", "Custom Branding"]
+    features: ["500 AI Edits / Day", "Unlimited Manuscripts", "100 Dialogue Timelines", "600m Voice Typing", "Custom Branding"],
+    durations: [
+      { id: 'monthly', label: 'Monthly', monthlyPrice: 5.99, months: 1, discount: 0, recommended: false },
+      { id: 'quarterly', label: 'Quarterly', monthlyPrice: 5.99, months: 3, discount: 10, recommended: false },
+      { id: 'biannual', label: '6-Monthly', monthlyPrice: 5.99, months: 6, discount: 15, recommended: false },
+      { id: 'annual', label: 'Yearly', monthlyPrice: 5.99, months: 12, discount: 20, recommended: true }
+    ]
   },
   {
     id: 'omnicore',
     title: "OmniCore",
-    price: 10.99,
     subtitle: "The Ultimate Shard",
     icon: Crown,
     color: "amber",
-    features: ["Unlimited AI Edits", "Unlimited Manuscripts", "Unlimited Dialogues", "Unlimited Voice Typing", "24/7 VIP Shard"]
+    features: ["Unlimited AI Edits", "Unlimited Manuscripts", "Unlimited Dialogues", "Unlimited Voice Typing", "24/7 VIP Shard"],
+    durations: [
+      { id: 'monthly', label: 'Monthly', monthlyPrice: 10.99, months: 1, discount: 0, recommended: false },
+      { id: 'quarterly', label: 'Quarterly', monthlyPrice: 10.99, months: 3, discount: 10, recommended: false },
+      { id: 'biannual', label: '6-Monthly', monthlyPrice: 10.99, months: 6, discount: 15, recommended: false },
+      { id: 'annual', label: 'Yearly', monthlyPrice: 10.99, months: 12, discount: 20, recommended: true }
+    ]
   }
 ];
 
 const Pricing = () => {
   const [currency, setCurrency] = useState({ code: 'USD', symbol: '$', rate: 1 });
   const [loading, setLoading] = useState(null);
+  const [selectedDurations, setSelectedDurations] = useState(
+    PLANS.reduce((acc, plan) => {
+      const defaultDuration = plan.durations.find(d => d.recommended)?.id || 'monthly';
+      return { ...acc, [plan.id]: defaultDuration };
+    }, {})
+  );
 
   useEffect(() => {
     const detectCurrency = async () => {
@@ -86,14 +107,22 @@ const Pricing = () => {
     document.body.appendChild(script);
   }, []);
 
-  const handlePurchase = async (plan) => {
-    if (plan.price === 0) return;
-    setLoading(plan.id);
+  const handlePurchase = async (planId, durationId) => {
+    const plan = PLANS.find(p => p.id === planId);
+    const duration = plan.durations.find(d => d.id === durationId);
+
+    if (!plan || !duration || duration.monthlyPrice === 0) return;
+    
+    const rawTotalPrice = duration.monthlyPrice * duration.months;
+    const discountedPrice = rawTotalPrice * (1 - (duration.discount / 100));
+    const finalAmount = Math.round(discountedPrice * currency.rate * 100) / 100;
+
+    setLoading(planId);
     const token = localStorage.getItem('token');
     
     try {
       const orderRes = await axios.post(`${import.meta.env.VITE_API_URL}/api/payments/create-order`, 
-        { amount: plan.price * currency.rate, currency: currency.code },
+        { amount: finalAmount, currency: currency.code },
         { headers: { Authorization: `Bearer ${token}` }}
       );
 
@@ -102,17 +131,20 @@ const Pricing = () => {
         amount: orderRes.data.amount,
         currency: orderRes.data.currency,
         name: "sOuLTEXTit",
-        description: `Upgrade to ${plan.title}`,
+        description: `Upgrade to ${plan.title} (${duration.label})`,
         order_id: orderRes.data.id,
         handler: async (response) => {
           const verifyRes = await axios.post(`${import.meta.env.VITE_API_URL}/api/payments/verify`, {
             ...response,
-            plan: plan.id
+            plan: planId,
+            duration: durationId
           }, { headers: { Authorization: `Bearer ${token}` }});
           
           if (verifyRes.data.success) {
             alert("Subscription Activated!");
             window.location.reload();
+          } else {
+            alert(verifyRes.data.error || "Payment verification failed.");
           }
         },
         theme: { color: "#8b5cf6" }
@@ -120,7 +152,10 @@ const Pricing = () => {
 
       const rzp = new window.Razorpay(options);
       rzp.open();
-    } catch (e) { alert("Payment Initialization Failed"); }
+    } catch (e) { 
+      console.error("Payment Initialization Failed:", e);
+      alert("Payment Initialization Failed."); 
+    }
     setLoading(null);
   };
 
@@ -137,45 +172,90 @@ const Pricing = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-24">
-        {PLANS.map((plan) => (
-          <motion.div 
-            whileHover={{ y: -10 }}
-            key={plan.id} 
-            className={`glass-panel p-8 rounded-[2.5rem] flex flex-col relative overflow-hidden transition-all duration-500 ${plan.recommended ? 'border-violet-500 bg-violet-500/5 shadow-[0_0_50px_rgba(139,92,246,0.1)]' : 'border-white/5'}`}
-          >
-            {plan.recommended && (
-              <div className="absolute top-6 right-6 px-3 py-1 bg-violet-500 rounded-full text-[8px] font-black uppercase tracking-widest text-white">
-                Recommended
-              </div>
-            )}
-            <div className={`w-14 h-14 rounded-2xl bg-${plan.color}-500/10 flex items-center justify-center text-${plan.color}-400 mb-8`}>
-              <plan.icon size={28} />
-            </div>
-            <h3 className="text-2xl font-display font-black text-white uppercase tracking-tighter mb-1">{plan.title}</h3>
-            <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest mb-6">{plan.subtitle}</p>
-            <div className="flex items-baseline gap-1 mb-8">
-              <span className="text-4xl font-display font-black text-white">{currency.symbol}{Math.round(plan.price * currency.rate)}</span>
-              <span className="text-gray-600 text-sm font-bold uppercase tracking-widest">/mo</span>
-            </div>
-            <ul className="flex-1 space-y-4 mb-10">
-              {plan.features.map((f, i) => (
-                <li key={i} className="flex items-center gap-3">
-                  <div className={`shrink-0 w-5 h-5 rounded-full bg-${plan.color}-500/10 flex items-center justify-center text-${plan.color}-400`}>
-                    <Check size={12} />
-                  </div>
-                  <span className="text-gray-400 text-sm font-medium">{f}</span>
-                </li>
-              ))}
-            </ul>
-            <button 
-              onClick={() => handlePurchase(plan)}
-              disabled={loading === plan.id || plan.price === 0}
-              className={`w-full py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all active:scale-95 ${plan.recommended ? 'bg-white text-black hover:bg-violet-500 hover:text-white' : 'bg-white/5 text-white hover:bg-white/10'}`}
+        {PLANS.map((plan) => {
+          const currentDurationId = selectedDurations[plan.id] || 'monthly';
+          const currentDuration = plan.durations.find(d => d.id === currentDurationId);
+          
+          const rawTotalPrice = currentDuration.monthlyPrice * currentDuration.months;
+          const discountedTotalPrice = rawTotalPrice * (1 - (currentDuration.discount / 100));
+          const priceDisplay = Math.round(discountedTotalPrice * currency.rate);
+          const monthlyEquivalent = Math.round((discountedTotalPrice / currentDuration.months) * currency.rate);
+
+          return (
+            <motion.div 
+              whileHover={{ y: -10 }}
+              key={plan.id} 
+              className={`glass-panel p-8 rounded-[2.5rem] flex flex-col relative overflow-hidden transition-all duration-500 ${currentDuration.recommended ? 'border-violet-500 bg-violet-500/5 shadow-[0_0_50px_rgba(139,92,246,0.1)]' : 'border-white/5'}`}
             >
-              {loading === plan.id ? <Loader2 className="animate-spin mx-auto" size={16}/> : plan.price === 0 ? "Default Shard" : "Initialize Shard"}
-            </button>
-          </motion.div>
-        ))}
+              {currentDuration.recommended && (
+                <div className="absolute top-6 right-6 px-3 py-1 bg-violet-500 rounded-full text-[8px] font-black uppercase tracking-widest text-white">
+                  Recommended
+                </div>
+              )}
+              <div className={`w-14 h-14 rounded-2xl bg-${plan.color}-500/10 flex items-center justify-center text-${plan.color}-400 mb-8`}>
+                <plan.icon size={28} />
+              </div>
+              <h3 className="text-2xl font-display font-black text-white uppercase tracking-tighter mb-1">{plan.title}</h3>
+              <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest mb-6">{currentDuration.label} Plan</p>
+              
+              {currentDuration.discount > 0 && plan.id !== 'free' && (
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="text-gray-600 line-through">{currency.symbol}{Math.round(rawTotalPrice * currency.rate)}</span>
+                  <span className={`text-emerald-500 text-[10px] font-black uppercase tracking-widest`}>
+                    {currentDuration.discount}% Off
+                  </span>
+                </div>
+              )}
+
+              <div className="flex items-baseline gap-1 mb-8">
+                <span className="text-4xl font-display font-black text-white">{currency.symbol}{priceDisplay}</span>
+                <span className="text-gray-600 text-sm font-bold uppercase tracking-widest">/{currentDuration.months === 1 ? 'mo' : `${currentDuration.months}mo`}</span>
+              </div>
+              
+              {plan.id !== 'free' && currentDuration.months > 1 && (
+                <p className="text-[10px] font-bold text-gray-500 mb-6 -mt-4">
+                  (Equivalent to {currency.symbol}{monthlyEquivalent}/month)
+                </p>
+              )}
+
+              {plan.id !== 'free' && (
+                <div className="flex flex-wrap gap-2 mb-8 -mt-2">
+                  {plan.durations.map(durationOpt => (
+                    <button
+                      key={durationOpt.id}
+                      onClick={() => setSelectedDurations(prev => ({ ...prev, [plan.id]: durationOpt.id }))}
+                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                        selectedDurations[plan.id] === durationOpt.id
+                          ? `bg-${plan.color}-500 text-white`
+                          : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                      }`}
+                    >
+                      {durationOpt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <ul className="flex-1 space-y-4 mb-10">
+                {plan.features.map((f, i) => (
+                  <li key={i} className="flex items-center gap-3">
+                    <div className={`shrink-0 w-5 h-5 rounded-full bg-${plan.color}-500/10 flex items-center justify-center text-${plan.color}-400`}>
+                      <Check size={12} />
+                    </div>
+                    <span className="text-gray-400 text-sm font-medium">{f}</span>
+                  </li>
+                ))}
+              </ul>
+              <button 
+                onClick={() => handlePurchase(plan.id, currentDuration.id)}
+                disabled={loading === plan.id || plan.id === 'free'}
+                className={`w-full py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all active:scale-95 ${currentDuration.recommended ? 'bg-white text-black hover:bg-violet-500 hover:text-white' : 'bg-white/5 text-white hover:bg-white/10'}`}
+              >
+                {loading === plan.id ? <Loader2 className="animate-spin mx-auto" size={16}/> : plan.id === 'free' ? "Default Shard" : "Initialize Shard"}
+              </button>
+            </motion.div>
+          );
+        })}
       </div>
 
       <div className="glass-panel p-10 md:p-16 rounded-[3rem] border-white/5 text-center relative overflow-hidden">

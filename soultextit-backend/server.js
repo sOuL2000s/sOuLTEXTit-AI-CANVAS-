@@ -41,6 +41,13 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
+const DURATION_TO_MONTHS = {
+  monthly: 1,
+  quarterly: 3,
+  biannual: 6,
+  annual: 12,
+};
+
 const PLAN_LIMITS = {
   free: { aiEdits: 10, sttMinutes: 30, canvases: 5, dialogues: 5 },
   creative: { aiEdits: 100, sttMinutes: 180, canvases: 50, dialogues: 25 },
@@ -58,6 +65,7 @@ const checkLimits = (type) => async (req, res, next) => {
   // 1. EXPIRY GUARD: If plan expired, revert to free
   if (user.subscription.plan !== 'free' && new Date() > user.subscription.expiry) {
     user.subscription.plan = 'free';
+    user.subscription.duration = 'monthly';
     user.subscription.status = 'expired';
     await user.save();
   }
@@ -986,10 +994,14 @@ app.post('/api/payments/create-order', auth, async (req, res) => {
 });
 
 app.post('/api/payments/verify', auth, async (req, res) => {
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan } = req.body;
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan, duration } = req.body;
   
-  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !plan || !duration) {
     return res.status(400).json({ error: "Missing verification parameters." });
+  }
+
+  if (!DURATION_TO_MONTHS[duration]) {
+    return res.status(400).json({ error: "Invalid duration provided." });
   }
 
   const crypto = require('crypto');
@@ -998,16 +1010,21 @@ app.post('/api/payments/verify', auth, async (req, res) => {
   const generated_signature = hmac.digest('hex');
 
   if (generated_signature === razorpay_signature) {
+    const monthsToAdd = DURATION_TO_MONTHS[duration];
+    const expiryDate = new Date();
+    expiryDate.setMonth(expiryDate.getMonth() + monthsToAdd);
+
     const updatedUser = await User.findByIdAndUpdate(req.userId, {
       'subscription.plan': plan,
+      'subscription.duration': duration,
       'subscription.status': 'active',
       'subscription.razorpay_payment_id': razorpay_payment_id,
-      'subscription.expiry': new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      'subscription.expiry': expiryDate
     }, { new: true }).select('-password');
     
     res.json({ success: true, user: updatedUser });
   } else {
-    res.status(400).json({ success: false });
+    res.status(400).json({ success: false, error: "Payment verification failed." });
   }
 });
 
