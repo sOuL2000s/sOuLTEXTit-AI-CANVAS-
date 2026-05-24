@@ -221,6 +221,11 @@ const ServerBootGame = () => {
 
 const AnimatedRoutes = ({ user, setUser, handleLogout }) => {
   const location = useLocation();
+
+  // Scroll to top on route change
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]); // The effect runs whenever the pathname changes
   
   return (
     <AnimatePresence mode="wait">
