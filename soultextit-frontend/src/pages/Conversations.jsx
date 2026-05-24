@@ -597,7 +597,7 @@ const Conversations = () => {
                               );
                             }
                             return (
-                              <code className="bg-white/10 px-1.5 py-0.5 rounded text-violet-300 font-mono text-[0.9em] break-all inline-block align-middle" {...props}>
+                              <code className="bg-white/10 px-1.5 py-0.5 rounded text-violet-300 font-mono text-[0.9em] inline-block align-middle overflow-x-auto whitespace-pre-wrap max-w-full scrollbar-thin" {...props}>
                                 {children}
                               </code>
                             );
