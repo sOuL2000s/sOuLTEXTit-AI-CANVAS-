@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Shield, Cpu, Key, Activity, Plus, Trash2, Power, Globe, BarChart3, AlertTriangle, Layers } from 'lucide-react';
+import { Shield, Cpu, Key, Activity, Plus, Trash2, Power, Globe, BarChart3, AlertTriangle, Layers, Edit3, Loader2, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const Admin = () => {
@@ -10,6 +10,10 @@ const Admin = () => {
   const [selectedIds, setSelectedIds] = useState([]);
   const [stats, setStats] = useState({ totalKeys: 0, activeModels: 0, totalRequests: 0, systemStatus: 'Initializing' });
   const [loading, setLoading] = useState(true);
+  const [rawKeysJson, setRawKeysJson] = useState('');
+  const [rawModelsJson, setRawModelsJson] = useState('');
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState({ type: '', text: '' });
 
   // Form States
   const [newModel, setNewModel] = useState({ modelId: '', displayName: '', provider: 'gemini', category: 'text' });
@@ -89,6 +93,60 @@ const Admin = () => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
+  const handleLoadCurrentKeys = async () => {
+    setBulkLoading(true);
+    setBulkMessage({ type: '', text: '' });
+    try {
+      const res = await api.get('/keys');
+      setRawKeysJson(JSON.stringify(res.data, null, 2));
+      setBulkMessage({ type: 'success', text: 'Current API keys loaded.' });
+    } catch (e) {
+      setBulkMessage({ type: 'error', text: 'Failed to load API keys.' });
+    }
+    setBulkLoading(false);
+  };
+
+  const handleApplyKeysBulk = async () => {
+    setBulkLoading(true);
+    setBulkMessage({ type: '', text: '' });
+    try {
+      const keysToUpdate = JSON.parse(rawKeysJson);
+      const res = await api.post('/keys/bulk', { keys: keysToUpdate });
+      setBulkMessage({ type: 'success', text: `Bulk API keys update applied! ${res.data.results.filter(r => r.status !== 'failed').length} items processed.` });
+      fetchData();
+    } catch (e) {
+      setBulkMessage({ type: 'error', text: e.response?.data?.error || 'Failed to apply bulk API keys update. Check JSON format.' });
+    }
+    setBulkLoading(false);
+  };
+
+  const handleLoadCurrentModels = async () => {
+    setBulkLoading(true);
+    setBulkMessage({ type: '', text: '' });
+    try {
+      const res = await api.get('/models');
+      setRawModelsJson(JSON.stringify(res.data, null, 2));
+      setBulkMessage({ type: 'success', text: 'Current AI models loaded.' });
+    } catch (e) {
+      setBulkMessage({ type: 'error', text: 'Failed to load AI models.' });
+    }
+    setBulkLoading(false);
+  };
+
+  const handleApplyModelsBulk = async () => {
+    setBulkLoading(true);
+    setBulkMessage({ type: '', text: '' });
+    try {
+      const modelsToUpdate = JSON.parse(rawModelsJson);
+      const res = await api.post('/models/bulk', { models: modelsToUpdate });
+      setBulkMessage({ type: 'success', text: `Bulk AI models update applied! ${res.data.results.filter(r => r.status !== 'failed').length} items processed.` });
+      fetchData();
+    } catch (e) {
+      setBulkMessage({ type: 'error', text: e.response?.data?.error || 'Failed to apply bulk AI models update. Check JSON format.' });
+    }
+    setBulkLoading(false);
+  };
+
   const StatCard = ({ icon: Icon, label, value, color }) => (
     <div className="glass-panel p-6 rounded-2xl border-white/5 flex items-center gap-4">
       <div className={`p-3 rounded-xl bg-${color}-500/10 text-${color}-400`}>
@@ -119,13 +177,13 @@ const Admin = () => {
       </header>
 
       <div className="flex flex-wrap gap-1 mb-8 md:mb-10 bg-white/5 p-1 rounded-2xl border border-white/10 w-full sm:w-fit relative overflow-hidden">
-        {['models', 'keys', 'metrics'].map(tab => (
+        {['models', 'keys', 'metrics', 'bulk-edit'].map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`flex-1 sm:flex-none relative px-4 md:px-10 py-2.5 md:py-3 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all z-10 ${activeTab === tab ? 'text-black' : 'text-gray-400 hover:text-white'}`}
           >
-            {tab}
+            {tab.replace('-', ' ').replace(/\b\w/g, char => char.toUpperCase())}
             {activeTab === tab && (
               <motion.div 
                 layoutId="activeTab"
@@ -392,6 +450,104 @@ const Admin = () => {
               <h3 className="text-2xl font-display font-bold text-gray-500 mb-2 uppercase tracking-tighter">Extended Analytics Offline</h3>
               <p className="text-gray-600 max-w-md mx-auto text-sm">Connect a Promethean data source or upgrade to the Enterprise Shard to unlock real-time neural throughput visualization.</p>
             </div>
+          </motion.div>
+        )}
+
+        {activeTab === 'bulk-edit' && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} key="bulk-edit">
+            <div className="space-y-12">
+              <div className="glass-panel p-8 rounded-3xl border-cyan-500/20 shadow-2xl">
+                <h3 className="text-xl font-display font-bold text-white mb-6 flex items-center gap-3">
+                  <Edit3 size={24} className="text-cyan-500"/> Raw API Key Management
+                </h3>
+                <p className="text-gray-500 text-sm mb-6">
+                  Edit API keys in bulk. Provide a JSON array of key objects. Include an <code className="bg-white/10 text-cyan-400 px-1 rounded-sm">_id</code> field to update existing keys; omit for new ones.
+                  <br/>
+                  <span className="text-[10px] text-gray-600 font-bold uppercase tracking-widest mt-2 block">
+                    Required fields: <code className="bg-white/10 text-cyan-400 px-1 rounded-sm">provider</code>, <code className="bg-white/10 text-cyan-400 px-1 rounded-sm">key</code>.
+                  </span>
+                </p>
+                <textarea
+                  className="w-full h-80 bg-white/5 border border-white/10 p-4 rounded-2xl text-white text-sm font-mono focus:border-cyan-500 outline-none transition-all custom-scrollbar resize-y"
+                  value={rawKeysJson}
+                  onChange={e => setRawKeysJson(e.target.value)}
+                  placeholder='[ { "provider": "gemini", "key": "YOUR_API_KEY_HERE", "label": "Dev Key" }, { "_id": "EXISTING_KEY_ID", "isActive": false, "priority": 1 }, ... ]'
+                />
+                <div className="flex flex-wrap gap-4 mt-6">
+                  <button
+                    onClick={handleLoadCurrentKeys}
+                    disabled={bulkLoading}
+                    className="px-6 py-3 rounded-xl bg-white/5 text-white text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+                  >
+                    {bulkLoading ? <Loader2 size={16} className="animate-spin" /> : <Globe size={16} />} Load Current Keys
+                  </button>
+                  <button
+                    onClick={handleApplyKeysBulk}
+                    disabled={bulkLoading}
+                    className="flex-1 px-6 py-3 rounded-xl bg-cyan-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-cyan-500 transition-all shadow-lg shadow-cyan-600/20 active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    {bulkLoading ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Apply Key Changes
+                  </button>
+                  <button
+                    onClick={() => setRawKeysJson('')}
+                    className="px-6 py-3 rounded-xl bg-rose-500/10 text-rose-400 text-[10px] font-black uppercase tracking-widest hover:bg-rose-500/20 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Trash2 size={16} /> Clear Editor
+                  </button>
+                </div>
+              </div>
+
+              <div className="glass-panel p-8 rounded-3xl border-emerald-500/20 shadow-2xl">
+                <h3 className="text-xl font-display font-bold text-white mb-6 flex items-center gap-3">
+                  <Layers size={24} className="text-emerald-500"/> Raw AI Model Management
+                </h3>
+                <p className="text-gray-500 text-sm mb-6">
+                  Manage AI models in bulk. Provide a JSON array of model objects. Include an <code className="bg-white/10 text-emerald-400 px-1 rounded-sm">_id</code> field to update existing models; omit for new ones.
+                  <br/>
+                  <span className="text-[10px] text-gray-600 font-bold uppercase tracking-widest mt-2 block">
+                    Required fields: <code className="bg-white/10 text-emerald-400 px-1 rounded-sm">modelId</code>, <code className="bg-white/10 text-emerald-400 px-1 rounded-sm">provider</code>, <code className="bg-white/10 text-emerald-400 px-1 rounded-sm">category</code>.
+                  </span>
+                </p>
+                <textarea
+                  className="w-full h-80 bg-white/5 border border-white/10 p-4 rounded-2xl text-white text-sm font-mono focus:border-emerald-500 outline-none transition-all custom-scrollbar resize-y"
+                  value={rawModelsJson}
+                  onChange={e => setRawModelsJson(e.target.value)}
+                  placeholder='[ { "modelId": "gemini-1.5-flash", "displayName": "Gemini Flash", "provider": "gemini", "category": "text" }, { "_id": "EXISTING_MODEL_ID", "isActive": false, "priority": 1 }, ... ]'
+                />
+                <div className="flex flex-wrap gap-4 mt-6">
+                  <button
+                    onClick={handleLoadCurrentModels}
+                    disabled={bulkLoading}
+                    className="px-6 py-3 rounded-xl bg-white/5 text-white text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+                  >
+                    {bulkLoading ? <Loader2 size={16} className="animate-spin" /> : <Globe size={16} />} Load Current Models
+                  </button>
+                  <button
+                    onClick={handleApplyModelsBulk}
+                    disabled={bulkLoading}
+                    className="flex-1 px-6 py-3 rounded-xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500 transition-all shadow-lg shadow-emerald-600/20 active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    {bulkLoading ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Apply Model Changes
+                  </button>
+                  <button
+                    onClick={() => setRawModelsJson('')}
+                    className="px-6 py-3 rounded-xl bg-rose-500/10 text-rose-400 text-[10px] font-black uppercase tracking-widest hover:bg-rose-500/20 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Trash2 size={16} /> Clear Editor
+                  </button>
+                </div>
+              </div>
+            </div>
+            {bulkMessage.text && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className={`mt-8 p-4 rounded-xl ${bulkMessage.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'} text-sm font-medium`}
+              >
+                {bulkMessage.text}
+              </motion.div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

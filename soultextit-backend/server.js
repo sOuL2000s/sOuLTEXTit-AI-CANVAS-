@@ -1050,6 +1050,36 @@ app.delete('/api/admin/keys/:id', auth, isAdmin, async (req, res) => {
   res.sendStatus(204);
 });
 
+// Bulk API Key Management
+app.post('/api/admin/keys/bulk', auth, isAdmin, async (req, res) => {
+  const { keys: keyData } = req.body;
+  if (!Array.isArray(keyData)) {
+    return res.status(400).json({ error: "Invalid input: expected an array of API key objects." });
+  }
+
+  const results = [];
+  for (const item of keyData) {
+    try {
+      let key;
+      if (item._id) {
+        key = await ApiKey.findByIdAndUpdate(item._id, item, { new: true, runValidators: true });
+        if (key) {
+          results.push({ id: item._id, status: 'updated', data: key });
+        } else {
+          results.push({ id: item._id, status: 'failed', error: 'API Key not found for update' });
+        }
+      } else {
+        key = await ApiKey.create(item);
+        results.push({ id: key._id, status: 'created', data: key });
+      }
+    } catch (e) {
+      results.push({ id: item._id || 'new', status: 'failed', error: e.message });
+    }
+  }
+  await refreshSystemCache();
+  res.json({ message: "Bulk key operation complete", results });
+});
+
 app.get('/api/admin/models', auth, isAdmin, async (req, res) => {
   res.json(await Model.find().sort({ provider: 1 }));
 });
@@ -1074,6 +1104,36 @@ app.delete('/api/admin/models/:id', auth, isAdmin, async (req, res) => {
   await Model.findByIdAndDelete(req.params.id);
   await refreshSystemCache();
   res.sendStatus(204);
+});
+
+// Bulk Model Management
+app.post('/api/admin/models/bulk', auth, isAdmin, async (req, res) => {
+  const { models: modelData } = req.body;
+  if (!Array.isArray(modelData)) {
+    return res.status(400).json({ error: "Invalid input: expected an array of AI model objects." });
+  }
+
+  const results = [];
+  for (const item of modelData) {
+    try {
+      let model;
+      if (item._id) {
+        model = await Model.findByIdAndUpdate(item._id, item, { new: true, runValidators: true });
+        if (model) {
+          results.push({ id: item._id, status: 'updated', data: model });
+        } else {
+          results.push({ id: item._id, status: 'failed', error: 'AI Model not found for update' });
+        }
+      } else {
+        model = await Model.create(item);
+        results.push({ id: model._id, status: 'created', data: model });
+      }
+    } catch (e) {
+      results.push({ id: item._id || 'new', status: 'failed', error: e.message });
+    }
+  }
+  await refreshSystemCache();
+  res.json({ message: "Bulk model operation complete", results });
 });
 
 const PORT = process.env.PORT || 5000;
