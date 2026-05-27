@@ -92,5 +92,14 @@ module.exports = {
   ApiKey: mongoose.model('ApiKey', ApiKeySchema),
   Model: mongoose.model('Model', ModelSchema),
   Canvas: mongoose.model('Canvas', CanvasSchema),
-  Conversation: mongoose.model('Conversation', ConversationSchema)
+  Conversation: mongoose.model('Conversation', ConversationSchema),
+  Todo: mongoose.model('Todo', new mongoose.Schema({
+    userId: mongoose.Schema.Types.ObjectId,
+    text: { type: String, required: true },
+    completed: { type: Boolean, default: false },
+    priority: { type: String, enum: ['low', 'medium', 'high'], default: 'medium' },
+    category: { type: String, default: 'General' },
+    dueDate: Date,
+    createdAt: { type: Date, default: Date.now }
+  }))
 };

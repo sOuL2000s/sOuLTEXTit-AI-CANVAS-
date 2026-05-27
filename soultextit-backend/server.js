@@ -7,7 +7,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
-const { User, ApiKey, Canvas, Model, Conversation } = require('./models/Schema');
+const { User, ApiKey, Canvas, Model, Conversation, Todo } = require('./models/Schema');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const axios = require('axios');
 const puppeteer = require('puppeteer');
@@ -1078,6 +1078,95 @@ app.patch('/api/conversations/:id', auth, async (req, res) => {
 app.delete('/api/conversations/:id', auth, async (req, res) => {
   await Conversation.findOneAndDelete({ _id: req.params.id, userId: req.userId });
   res.sendStatus(204);
+});
+
+// Smart To-Do Routes
+app.get('/api/todos', auth, async (req, res) => {
+  try {
+    const todos = await Todo.find({ userId: req.userId }).sort({ createdAt: -1 });
+    res.json(todos);
+  } catch (err) { res.status(500).json({ error: "Failed to retrieve tasks" }); }
+});
+
+app.post('/api/todos', auth, async (req, res) => {
+  try {
+    const todo = await Todo.create({ ...req.body, userId: req.userId });
+    res.status(201).json(todo);
+  } catch (err) { res.status(400).json({ error: "Failed to create task" }); }
+});
+
+app.patch('/api/todos/:id', auth, async (req, res) => {
+  try {
+    const todo = await Todo.findOneAndUpdate(
+      { _id: req.params.id, userId: req.userId },
+      req.body,
+      { new: true }
+    );
+    res.json(todo);
+  } catch (err) { res.status(400).json({ error: "Update failed" }); }
+});
+
+app.delete('/api/todos/:id', auth, async (req, res) => {
+  try {
+    await Todo.findOneAndDelete({ _id: req.params.id, userId: req.userId });
+    res.sendStatus(204);
+  } catch (err) { res.status(500).json({ error: "Deletion failed" }); }
+});
+
+app.post('/api/ai/todos', auth, async (req, res) => {
+  const { prompt, currentTodos, modelId } = req.body;
+  
+  const systemPrompt = `
+    You are a Smart To-Do Assistant. Your goal is to interpret user intentions and manage their task list.
+    Current Tasks: ${JSON.stringify(currentTodos)}
+    
+    Interpret the user's command and return a JSON ARRAY of operations. 
+    Each operation must be an object with an "action" field: "create", "update", "delete", or "clear_completed".
+    
+    - For "create": include "text", "priority" (low, medium, high), and "category".
+    - For "update": include "id" and fields to change ("text", "completed", "priority", "category").
+    - For "delete": include "id".
+    - For "clear_completed": no extra fields.
+
+    User Command: "${prompt}"
+    
+    IMPORTANT: The command might be from speech-to-text, so it might contain slight transcription errors, punctuation, or filler words. Ignore those and interpret the core intention.
+    ONLY return the JSON array. No explanations, no markdown backticks, just the raw valid JSON array.
+  `;
+
+  try {
+    const aiResponse = await callAI({ 
+      prompt: systemPrompt, 
+      preferredModelId: modelId,
+      category: 'text'
+    });
+
+    // Sanitize AI response to extract only JSON array
+    const jsonMatch = aiResponse.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error("AI failed to generate a structured command set.");
+    
+    const operations = JSON.parse(jsonMatch[0]);
+    const results = [];
+
+    for (const op of operations) {
+      if (op.action === 'create') {
+        results.push(await Todo.create({ ...op, userId: req.userId }));
+      } else if (op.action === 'update' && op.id) {
+        results.push(await Todo.findOneAndUpdate({ _id: op.id, userId: req.userId }, op, { new: true }));
+      } else if (op.action === 'delete' && op.id) {
+        await Todo.findOneAndDelete({ _id: op.id, userId: req.userId });
+        results.push({ _id: op.id, deleted: true });
+      } else if (op.action === 'clear_completed') {
+        await Todo.deleteMany({ userId: req.userId, completed: true });
+        results.push({ cleared: true });
+      }
+    }
+
+    res.json({ message: "Neural intent processed", operations: results });
+  } catch (err) {
+    console.error("Smart Todo AI Error:", err);
+    res.status(500).json({ error: "Failed to interpret neural task command." });
+  }
 });
 
 // Payment Routes

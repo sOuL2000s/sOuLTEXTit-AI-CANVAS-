@@ -4,6 +4,7 @@ import Editor from './components/Editor';
 import Admin from './pages/Admin';
 import Auth from './pages/Auth';
 import Conversations from './pages/Conversations';
+import Todos from './pages/Todos';
 import Profile from './pages/Profile';
 import Home from './pages/Home';
 import About from './pages/About';
@@ -12,7 +13,7 @@ import Legal from './pages/Legal';
 import './App.css';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X, Layout, Shield, LogOut, Sparkles, User, Settings, Ghost, HelpCircle } from 'lucide-react';
+import { Menu, X, Layout, Shield, LogOut, Sparkles, User, Settings, Ghost, HelpCircle, Check } from 'lucide-react';
 import axios from 'axios';
 
 const ServerBootGame = () => {
@@ -241,6 +242,7 @@ const AnimatedRoutes = ({ user, setUser, handleLogout }) => {
           <Route path="/" element={<Home />} />
           <Route path="/editor" element={user ? <Editor key={user._id} /> : <Navigate to="/auth" />} />
           <Route path="/chat" element={user ? <Conversations /> : <Navigate to="/auth" />} />
+          <Route path="/todos" element={user ? <Todos /> : <Navigate to="/auth" />} />
           <Route path="/profile" element={user ? <Profile setUser={setUser} /> : <Navigate to="/auth" />} />
           <Route path="/auth" element={!user ? <Auth setUser={setUser} /> : <Navigate to="/editor" />} />
           <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to="/" />} />
@@ -290,6 +292,7 @@ function App() {
 
   const navItems = user ? [
     { name: 'Canvas', path: '/editor', icon: Layout },
+    { name: 'Tasks', path: '/todos', icon: Check },
     { name: 'Dialogues', path: '/chat', icon: Sparkles },
     { name: 'Profile', path: '/profile', icon: User },
     ...(user.role === 'admin' ? [{ name: 'Nexus', path: '/admin', icon: Shield }] : []),
