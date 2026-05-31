@@ -193,6 +193,8 @@ const Editor = () => {
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [selectedModel, setSelectedModel] = useState('');
   const [selectedSttModel, setSelectedSttModel] = useState('');
+  const [isDiffSplitView, setIsDiffSplitView] = useState(window.innerWidth > 768);
+  const [isDiffWordWrap, setIsDiffWordWrap] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
   const [speechRate, setSpeechRate] = useState(1);
@@ -1006,11 +1008,33 @@ const Editor = () => {
                   </div>
                   <div>
                     <h3 className="text-lg font-display font-bold text-white tracking-tight">Review Neural Shard</h3>
-                    <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.2em] mt-0.5">Harmonizing Intelligence</p>
+                    <div className="flex items-center gap-3 mt-0.5">
+                      <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.2em]">Harmonizing Intelligence</p>
+                      <div className="h-3 w-[1px] bg-white/10" />
+                      <p className="text-[9px] text-amber-500 font-bold uppercase">{selectionRange ? 'Partial Transformation' : 'Full Reconstruction'}</p>
+                    </div>
                   </div>
                 </div>
                 
-                <div className="flex gap-2 w-full md:w-auto">
+                <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                  {/* View Controls */}
+                  <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
+                    <button 
+                      onClick={() => setIsDiffSplitView(false)}
+                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${!isDiffSplitView ? 'bg-white text-black' : 'text-gray-500 hover:text-white'}`}
+                    >
+                      Unified
+                    </button>
+                    <button 
+                      onClick={() => setIsDiffSplitView(true)}
+                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${isDiffSplitView ? 'bg-white text-black' : 'text-gray-500 hover:text-white'}`}
+                    >
+                      Split
+                    </button>
+                  </div>
+
+                  <div className="h-8 w-[1px] bg-white/10 hidden md:block" />
+
                   <button 
                     onClick={() => setSuggestion(null)} 
                     className="flex-1 md:flex-none px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-gray-400 hover:text-white hover:bg-white/5 transition-all border border-white/5"
@@ -1027,47 +1051,59 @@ const Editor = () => {
                       setSuggestion(null); 
                       setSelectionRange(null);
                     }} 
-                    className="flex-1 md:flex-none px-6 py-2.5 rounded-xl bg-white text-black text-xs font-black uppercase tracking-widest shadow-xl shadow-white/5 hover:bg-violet-500 hover:text-white transition-all flex items-center justify-center gap-2 active:scale-95"
+                    className="flex-1 md:flex-none px-6 py-2.5 rounded-xl bg-violet-600 text-white text-xs font-black uppercase tracking-widest shadow-xl shadow-violet-600/20 hover:bg-violet-500 transition-all flex items-center justify-center gap-2 active:scale-95"
                   >
-                    <Check size={16}/> Integrate
+                    <Check size={16}/> Integrate Shard
                   </button>
                 </div>
               </div>
 
               {/* Diff Content Area */}
-              <div className="flex-1 overflow-auto bg-[#050508] relative">
-                <div className="min-w-full">
+              <div className="flex-1 overflow-auto bg-[#02010a] relative custom-scrollbar">
+                <div className="min-w-full p-4 md:p-8">
                   <ReactDiffViewer 
                     oldValue={selectionRange ? editor.state.doc.textBetween(selectionRange.from, selectionRange.to, ' ') : editor.storage.markdown.getMarkdown()} 
                     newValue={suggestion} 
-                    splitView={window.innerWidth > 768} 
+                    splitView={isDiffSplitView} 
                     useDarkTheme={true}
                     compareMethod={DiffMethod.WORDS}
                     styles={{
                       variables: {
                         dark: {
                           diffViewerBackground: 'transparent',
-                          addedBackground: 'rgba(16, 185, 129, 0.1)',
+                          addedBackground: 'rgba(16, 185, 129, 0.08)',
                           addedColor: '#10b981',
-                          removedBackground: 'rgba(239, 68, 68, 0.1)',
+                          removedBackground: 'rgba(239, 68, 68, 0.08)',
                           removedColor: '#ef4444',
-                          wordAddedBackground: 'rgba(16, 185, 129, 0.25)',
-                          wordRemovedBackground: 'rgba(239, 68, 68, 0.25)',
-                          gutterBackground: 'rgba(255,255,255,0.02)',
-                          gutterColor: '#4b5563',
-                          codeFoldBackground: '#111827',
+                          wordAddedBackground: 'rgba(16, 185, 129, 0.2)',
+                          wordRemovedBackground: 'rgba(239, 68, 68, 0.2)',
+                          gutterBackground: 'transparent',
+                          gutterColor: '#334155',
+                          codeFoldBackground: '#0f172a',
                           emptyLineBackground: 'transparent',
-                          lineNumberColor: '#334155'
+                          lineNumberColor: '#1e293b'
                         }
                       },
                       contentText: {
-                        fontSize: '12px',
-                        lineHeight: '1.7',
-                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                        fontSize: '13px',
+                        lineHeight: '1.8',
+                        fontFamily: "'Inter', sans-serif",
+                        whiteSpace: isDiffWordWrap ? 'pre-wrap' : 'pre',
+                        wordBreak: 'break-word'
                       },
                       gutter: {
-                        padding: '0 12px',
-                        minWidth: '50px'
+                        padding: '0 15px',
+                        minWidth: '60px',
+                        borderRight: '1px solid rgba(255,255,255,0.02)'
+                      },
+                      wordAdded: {
+                        borderRadius: '4px',
+                        padding: '2px 0'
+                      },
+                      wordRemoved: {
+                        borderRadius: '4px',
+                        padding: '2px 0',
+                        textDecoration: 'line-through'
                       }
                     }}
                   />

@@ -294,7 +294,6 @@ function App() {
     { name: 'Canvas', path: '/editor', icon: Layout },
     { name: 'Tasks', path: '/todos', icon: Check },
     { name: 'Dialogues', path: '/chat', icon: Sparkles },
-    { name: 'Profile', path: '/profile', icon: User },
     ...(user.role === 'admin' ? [{ name: 'Nexus', path: '/admin', icon: Shield }] : []),
   ] : [
     { name: 'About', path: '/about', icon: HelpCircle },
@@ -344,11 +343,14 @@ function App() {
             <div className="flex gap-4 items-center">
               {user ? (
                 <>
-                  <div className="hidden lg:flex items-center gap-3 px-4 py-2 glass-card rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-300 border-white/5">
+                  <NavLink 
+                    to="/profile"
+                    className="hidden lg:flex items-center gap-3 px-4 py-2 glass-card rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-300 border-white/5 hover:border-violet-500/50 hover:bg-white/10 transition-all"
+                  >
                     <User size={12} className="text-violet-400" />
                     {user.name}
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
-                  </div>
+                  </NavLink>
                   
                   <button 
                     onClick={handleLogout} 
@@ -385,7 +387,11 @@ function App() {
                 exit={{ opacity: 0, y: -20 }}
                 className="md:hidden absolute top-20 left-0 w-full glass-panel rounded-2xl p-6 border-white/10 shadow-2xl flex flex-col gap-4 mt-2"
               >
-                <div className="flex items-center gap-3 px-4 py-3 bg-white/5 rounded-xl mb-2">
+                <NavLink 
+                  to="/profile"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="flex items-center gap-3 px-4 py-3 bg-white/5 rounded-xl mb-2 hover:bg-white/10 border border-transparent hover:border-white/10 transition-all"
+                >
                    <div className="w-8 h-8 rounded-full bg-violet-500/20 flex items-center justify-center text-violet-400">
                       <User size={16} />
                    </div>
@@ -393,7 +399,7 @@ function App() {
                       <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Active Entity</p>
                       <p className="text-sm font-bold text-white">{user?.name}</p>
                    </div>
-                </div>
+                </NavLink>
                 
                 {navItems.map((item) => (
                   <NavLink
