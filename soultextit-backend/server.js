@@ -7,7 +7,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
-const { User, ApiKey, Canvas, Model, Conversation, Todo } = require('./models/Schema');
+const { User, ApiKey, Canvas, CanvasVersion, Model, Conversation, Todo } = require('./models/Schema');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const axios = require('axios');
 const puppeteer = require('puppeteer');
@@ -653,6 +653,26 @@ app.post('/api/canvases/export-docx', auth, async (req, res) => {
 });
 
 // Canvas Routes
+// Get version history for a specific canvas
+app.get('/api/canvases/:id/history', auth, async (req, res) => {
+  const versions = await CanvasVersion.find({ canvasId: req.params.id }).sort({ timestamp: -1 });
+  res.json(versions);
+});
+
+// Restore a specific version
+app.post('/api/canvases/:id/restore', auth, async (req, res) => {
+  const { versionId } = req.body;
+  const version = await CanvasVersion.findById(versionId);
+  if (!version) return res.status(404).json({ error: "Version not found" });
+  
+  const canvas = await Canvas.findOneAndUpdate(
+    { _id: req.params.id, userId: req.userId },
+    { content: version.content, lastModified: Date.now() },
+    { new: true }
+  );
+  res.json(canvas);
+});
+
 app.get('/api/canvases', auth, async (req, res) => {
   res.json(await Canvas.find({ userId: req.userId }).sort({ lastModified: -1 }));
 });
@@ -676,13 +696,29 @@ app.post('/api/canvases', auth, checkLimits('canvas'), async (req, res) => {
 
     const canvas = await Canvas.findOneAndUpdate(
       { userId: req.userId, title },
-      { 
-        content, 
-        $push: { history: { $each: [{ content, timestamp: new Date() }], $slice: -20 } }, 
-        lastModified: Date.now() 
-      },
+      { content, lastModified: Date.now() },
       { upsert: true, returnDocument: 'after' }
     );
+
+    // Semantic History Logic: Only create a version if significant time has passed 
+    // or if the content has changed significantly (to prevent clutter from auto-saves)
+    const lastVersion = await CanvasVersion.findOne({ canvasId: canvas._id }).sort({ timestamp: -1 });
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+    if (!lastVersion || lastVersion.timestamp < fiveMinutesAgo) {
+      await CanvasVersion.create({
+        canvasId: canvas._id,
+        content: canvas.content,
+        label: 'Auto-save'
+      });
+      
+      // Clean up old versions to keep DB tidy (limit to 30 per canvas)
+      const versionCount = await CanvasVersion.countDocuments({ canvasId: canvas._id });
+      if (versionCount > 30) {
+        const oldest = await CanvasVersion.find({ canvasId: canvas._id }).sort({ timestamp: 1 }).limit(versionCount - 30);
+        await CanvasVersion.deleteMany({ _id: { $in: oldest.map(v => v._id) } });
+      }
+    }
 
     // Usage stats for total documents are now dynamically calculated per request in /api/user/me
 

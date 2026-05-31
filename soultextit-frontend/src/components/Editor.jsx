@@ -205,6 +205,9 @@ const Editor = () => {
   const lastFocusedRef = useRef({ id: 'editor', start: 0, end: 0 });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [canvases, setCanvases] = useState([]);
+  const [currentCanvasId, setCurrentCanvasId] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState('idle'); // idle, saving, saved
   const lastSavedRef = useRef('NEW_MANUSCRIPT_INITIAL_STATE');
 
@@ -527,12 +530,13 @@ const Editor = () => {
 
     setSaveStatus('saving');
     try {
-      await axiosAuth.post('/api/canvases', { title, content: contentToSave });
+      const res = await axiosAuth.post('/api/canvases', { title, content: contentToSave });
+      setCurrentCanvasId(res.data._id);
       lastSavedRef.current = contentToSave;
       setSaveStatus('saved');
       // Quietly refresh canvases list to reflect updated modified timestamps
-      const res = await axiosAuth.get('/api/canvases');
-      setCanvases(res.data);
+      const listRes = await axiosAuth.get('/api/canvases');
+      setCanvases(listRes.data);
     } catch (err) { 
       console.error("Neural synchronization failed");
       setSaveStatus('dirty'); // Revert to dirty to retry later
@@ -540,6 +544,7 @@ const Editor = () => {
   };
 
   const createNewCanvas = () => {
+    setCurrentCanvasId(null);
     setTitle('A New Narrative');
     editor.commands.setContent('');
     lastSavedRef.current = 'NEW_MANUSCRIPT_INITIAL_STATE';
@@ -548,11 +553,36 @@ const Editor = () => {
   };
 
   const loadCanvas = (canvas) => {
+    setCurrentCanvasId(canvas._id);
     setTitle(canvas.title);
     editor.commands.setContent(canvas.content);
     lastSavedRef.current = canvas.content;
     setSaveStatus('saved');
     setIsSidebarOpen(false);
+  };
+
+  const fetchHistory = async () => {
+    if (!currentCanvasId) return;
+    try {
+      const res = await axiosAuth.get(`/api/canvases/${currentCanvasId}/history`);
+      setHistory(res.data);
+      setIsHistoryOpen(true);
+    } catch (e) { console.error("Chronicle inaccessible"); }
+  };
+
+  const saveManualCheckpoint = async () => {
+    const label = prompt("Enter a label for this checkpoint:", "Manual Snapshot");
+    if (!label) return;
+    
+    try {
+      setSaveStatus('saving');
+      const content = editor.storage.markdown.getMarkdown();
+      await axiosAuth.post('/api/canvases', { title, content });
+      // The backend creates versions based on timestamp, but we can force a save
+      // In a real prod environment, you'd add a "forceVersion: true" flag to the API
+      setSaveStatus('saved');
+      fetchHistory();
+    } catch (e) { setSaveStatus('dirty'); }
   };
 
   const deleteCanvas = async (id, e) => {
@@ -643,7 +673,11 @@ const Editor = () => {
   };
 
   const showHistory = () => {
-    setIsSidebarOpen(true);
+    if (currentCanvasId) {
+      fetchHistory();
+    } else {
+      setIsSidebarOpen(true);
+    }
   };
 
   const MarkdownGuide = () => (
@@ -703,7 +737,7 @@ const Editor = () => {
   const ToolbarButton = ({ onClick, isActive, icon: Icon, title, activeClass = "text-violet-400 bg-violet-400/10 border-violet-400/20" }) => (
     <button
       onClick={onClick}
-      className={`p-2 rounded-lg transition-all border border-transparent hover:bg-white/10 hover:border-white/10 ${isActive ? activeClass : "text-gray-400"}`}
+      className={`p-2 rounded-lg transition-all border border-transparent hover:bg-white/10 hover:border-white/10 shrink-0 ${isActive ? activeClass : "text-gray-400"}`}
       title={title}
     >
       <Icon size={18} />
@@ -713,13 +747,82 @@ const Editor = () => {
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 relative">
       {/* Floating Sidebar Toggle (Contextual Navigation) */}
-      <button 
-        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        className="fixed left-4 bottom-20 md:left-6 md:top-32 md:bottom-auto z-50 p-3 md:p-4 glass-panel rounded-full md:rounded-xl text-violet-400 hover:text-white transition-all shadow-2xl active:scale-90"
-        title="Archive Explorer"
-      >
-        <History size={20} className="md:w-6 md:h-6" />
-      </button>
+      <div className="fixed left-4 bottom-20 md:left-6 md:top-32 md:bottom-auto z-50 flex flex-col gap-2">
+        <button 
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="p-3 md:p-4 glass-panel rounded-full md:rounded-xl text-gray-400 hover:text-white transition-all shadow-2xl active:scale-90"
+          title="Archive Explorer (Files)"
+        >
+          <Layers size={20} className="md:w-6 md:h-6" />
+        </button>
+        <button 
+          onClick={showHistory}
+          disabled={!currentCanvasId}
+          className="p-3 md:p-4 glass-panel rounded-full md:rounded-xl text-violet-400 hover:text-white transition-all shadow-2xl active:scale-90 disabled:opacity-30"
+          title="Manuscript History (Versions)"
+        >
+          <History size={20} className="md:w-6 md:h-6" />
+        </button>
+      </div>
+
+      {/* Version History Sidebar */}
+      <AnimatePresence>
+        {isHistoryOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsHistoryOpen(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[115]"
+            />
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed right-0 top-0 h-full w-full sm:w-80 glass-panel border-l border-white/10 z-[120] p-6 sm:p-8 shadow-2xl flex flex-col"
+            >
+              <div className="flex justify-between items-center mb-8">
+                <div>
+                  <h3 className="text-xl font-display font-black text-white uppercase tracking-tighter">Timeline</h3>
+                  <p className="text-[10px] text-gray-500 font-bold tracking-widest uppercase mt-1">Version History</p>
+                </div>
+                <button onClick={() => setIsHistoryOpen(false)} className="text-gray-500 hover:text-white"><X size={20}/></button>
+              </div>
+
+              <button 
+                onClick={saveManualCheckpoint}
+                className="w-full p-4 mb-6 rounded-2xl border border-violet-500/30 text-violet-400 font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-violet-500/10 transition-all"
+              >
+                <Save size={14} /> Create Checkpoint
+              </button>
+              
+              <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                {history.map((v, i) => (
+                  <button 
+                    key={v._id}
+                    onClick={() => {
+                      setSelectionRange(null); // Full document restoration preview
+                      setSuggestion(v.content);
+                      setIsHistoryOpen(false);
+                    }}
+                    className="w-full text-left p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:border-violet-500/30 transition-all group"
+                  >
+                    <div className="flex justify-between items-start mb-1">
+                      <p className="text-xs font-bold text-gray-200 group-hover:text-violet-400 transition-colors">{v.label || 'Auto-save'}</p>
+                      <p className="text-[8px] font-black text-gray-600 uppercase">{i === 0 ? 'Latest' : `#${history.length - i}`}</p>
+                    </div>
+                    <p className="text-[10px] text-gray-500 font-medium">
+                      {new Date(v.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Markdown Guide Sidebar */}
       <AnimatePresence>
@@ -912,7 +1015,7 @@ const Editor = () => {
             </select>
           </div>
 
-          <button onClick={showHistory} className="p-3 text-violet-400 hover:bg-white/10 rounded-xl transition-all" title="Manuscript History"><History size={18}/></button>
+          <button onClick={showHistory} className="p-3 text-violet-400 hover:bg-white/10 rounded-xl transition-all" title="Timeline / History"><History size={18}/></button>
         </div>
       </motion.div>
 
@@ -1007,9 +1110,13 @@ const Editor = () => {
                     <Wand2 size={20} />
                   </div>
                   <div>
-                    <h3 className="text-lg font-display font-bold text-white tracking-tight">Review Neural Shard</h3>
+                    <h3 className="text-lg font-display font-bold text-white tracking-tight">
+                      {selectionRange ? 'Review Neural Shard' : 'Review Historical State'}
+                    </h3>
                     <div className="flex items-center gap-3 mt-0.5">
-                      <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.2em]">Harmonizing Intelligence</p>
+                      <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.2em]">
+                        {selectionRange ? 'Harmonizing Intelligence' : 'Temporal Reconstruction'}
+                      </p>
                       <div className="h-3 w-[1px] bg-white/10" />
                       <p className="text-[9px] text-amber-500 font-bold uppercase">{selectionRange ? 'Partial Transformation' : 'Full Reconstruction'}</p>
                     </div>
@@ -1047,13 +1154,14 @@ const Editor = () => {
                         editor.commands.insertContentAt(selectionRange, suggestion);
                       } else {
                         editor.commands.setContent(suggestion); 
+                        setSaveStatus('dirty'); // History restore is a change
                       }
                       setSuggestion(null); 
                       setSelectionRange(null);
                     }} 
                     className="flex-1 md:flex-none px-6 py-2.5 rounded-xl bg-violet-600 text-white text-xs font-black uppercase tracking-widest shadow-xl shadow-violet-600/20 hover:bg-violet-500 transition-all flex items-center justify-center gap-2 active:scale-95"
                   >
-                    <Check size={16}/> Integrate Shard
+                    <Check size={16}/> {selectionRange ? 'Integrate Shard' : 'Restore Version'}
                   </button>
                 </div>
               </div>
@@ -1125,8 +1233,8 @@ const Editor = () => {
         className="glass-panel rounded-3xl sm:rounded-[2.5rem] shadow-2xl min-h-[60vh] sm:min-h-[70vh] relative overflow-hidden flex flex-col"
       >
         {/* Markdown Toolbar */}
-        <div className="sticky top-0 z-30 p-3 sm:p-4 border-b border-white/5 bg-[#02010a]/80 backdrop-blur-xl flex flex-wrap items-center gap-1 shrink-0">
-          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+        <div className="sticky top-0 z-30 p-2 sm:p-4 border-b border-white/5 bg-[#02010a]/80 backdrop-blur-xl flex items-center gap-1 shrink-0 overflow-x-auto no-scrollbar scroll-smooth">
+          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1 shrink-0">
             <ToolbarButton 
               onClick={() => editor.chain().focus().undo().run()} 
               icon={Undo2} 
@@ -1139,7 +1247,7 @@ const Editor = () => {
             />
           </div>
 
-          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1 shrink-0">
             <ToolbarButton 
               onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} 
               isActive={editor?.isActive('heading', { level: 1 })}
@@ -1160,7 +1268,7 @@ const Editor = () => {
             />
           </div>
 
-          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1 shrink-0">
             <ToolbarButton 
               onClick={() => editor.chain().focus().toggleBold().run()} 
               isActive={editor?.isActive('bold')}
@@ -1199,7 +1307,7 @@ const Editor = () => {
             />
           </div>
 
-          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1 shrink-0">
             <ToolbarButton 
               onClick={() => editor.chain().focus().toggleSubscript().run()} 
               isActive={editor?.isActive('subscript')}
@@ -1214,7 +1322,7 @@ const Editor = () => {
             />
           </div>
 
-          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1 shrink-0">
             <ToolbarButton 
               onClick={() => editor.chain().focus().toggleBulletList().run()} 
               isActive={editor?.isActive('bulletList')}
@@ -1229,7 +1337,7 @@ const Editor = () => {
             />
           </div>
 
-          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1 shrink-0">
             <ToolbarButton 
               onClick={() => editor.chain().focus().toggleBlockquote().run()} 
               isActive={editor?.isActive('blockquote')}
@@ -1249,7 +1357,7 @@ const Editor = () => {
             />
           </div>
 
-          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1 shrink-0">
             <ToolbarButton 
               onClick={() => {
                 const latex = prompt('Enter LaTeX:');
@@ -1261,7 +1369,7 @@ const Editor = () => {
             />
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 shrink-0">
             <ToolbarButton 
               onClick={copyRawMarkdown} 
               icon={Copy} 

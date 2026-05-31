@@ -80,11 +80,14 @@ const CanvasSchema = new mongoose.Schema({
   userId: mongoose.Schema.Types.ObjectId,
   title: { type: String, default: 'Untitled Masterpiece' },
   content: { type: String, default: '' },
-  history: [{
-    content: String,
-    timestamp: { type: Date, default: Date.now }
-  }],
   lastModified: { type: Date, default: Date.now }
+});
+
+const CanvasVersionSchema = new mongoose.Schema({
+  canvasId: { type: mongoose.Schema.Types.ObjectId, ref: 'Canvas', required: true, index: true },
+  content: String,
+  label: String, // e.g., "Auto-save", "Manual Checkpoint"
+  timestamp: { type: Date, default: Date.now }
 });
 
 module.exports = {
@@ -92,6 +95,7 @@ module.exports = {
   ApiKey: mongoose.model('ApiKey', ApiKeySchema),
   Model: mongoose.model('Model', ModelSchema),
   Canvas: mongoose.model('Canvas', CanvasSchema),
+  CanvasVersion: mongoose.model('CanvasVersion', CanvasVersionSchema),
   Conversation: mongoose.model('Conversation', ConversationSchema),
   Todo: mongoose.model('Todo', new mongoose.Schema({
     userId: mongoose.Schema.Types.ObjectId,

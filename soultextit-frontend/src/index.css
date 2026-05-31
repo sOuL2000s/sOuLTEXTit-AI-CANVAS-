@@ -80,6 +80,16 @@ h1, h2, h3, .font-display {
   background: white;
 }
 
+/* Hide scrollbar utility for horizontal toolbars */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
 /* Tiptap Polish */
 .ProseMirror {
   min-height: 60vh;
